@@ -39,14 +39,21 @@
     <Energy Type1="Necrotic" Type2="Medium">2</Energy>
     
     <!-- Low cell-cell contact promotes adhesion -->
-    <Energy Type1="Normoxic" Type2="Normoxic">4</Energy>
-    <Energy Type1="Hypoxic"  Type2="Hypoxic">4</Energy>
-    <Energy Type1="Normoxic" Type2="Hypoxic">5</Energy>
+    <Energy Type1="Normoxic" Type2="Normoxic">2</Energy>
+    <Energy Type1="Hypoxic"  Type2="Hypoxic">2</Energy>
+    <Energy Type1="Normoxic" Type2="Hypoxic">3</Energy>
+      <!-- added line -->
+    <Energy Type1="Hypoxic" Type2="Normoxic">5</Energy>
     
     <!-- Necrotic cells FROZEN in place - extremely strong adhesion -->
-    <Energy Type1="Necrotic" Type2="Necrotic">1</Energy>
-    <Energy Type1="Necrotic" Type2="Normoxic">1</Energy>
-    <Energy Type1="Necrotic" Type2="Hypoxic">1</Energy>
+    <Energy Type1="Necrotic" Type2="Necrotic">2</Energy>
+    <Energy Type1="Necrotic" Type2="Normoxic">4</Energy>
+    <Energy Type1="Necrotic" Type2="Hypoxic">4</Energy>
+    
+    <!-- added line -->
+    <Energy Type1="Normoxic" Type2="Necrotic">5</Energy>
+    <Energy Type1="Hypoxic" Type2="Necrotic">5</Energy>
+    
   </Plugin>
 
   <Plugin Name="NeighborTracker"/>
@@ -100,5 +107,6 @@
 
     </DiffusionField>
   </Steppable>
+
 
 </CompuCell3D>
