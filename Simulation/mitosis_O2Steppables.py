@@ -5,7 +5,7 @@ import math
 # ---- Improved Parameters for 3D Spheroid Formation ----
 
 # Initial cell parameters
-INIT_CELL_RADIUS = 3           # Start with slightly larger seed cell
+INIT_CELL_RADIUS = 3          # Start with slightly larger seed cell
 INIT_TARGET_VOLUME = 45.0      # Target volume for initial growth
 
 # Volume constraints - MUCH MORE PERMISSIVE
