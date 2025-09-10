@@ -38,23 +38,17 @@
 
     <Energy Type1="Medium"   Type2="Medium">0</Energy>
 
-    <Energy Type1="Medium"   Type2="Normoxic">5</Energy>
-    <Energy Type1="Normoxic" Type2="Medium">5</Energy>
-    <Energy Type1="Medium"   Type2="Hypoxic">5</Energy>
-    <Energy Type1="Hypoxic"  Type2="Medium">5</Energy>
-    <Energy Type1="Medium"   Type2="Necrotic">6</Energy>
-    <Energy Type1="Necrotic" Type2="Medium">6</Energy>
+    <Energy Type1="Medium"   Type2="Normoxic">2</Energy>
+    <Energy Type1="Medium"   Type2="Hypoxic">2</Energy>
+    <Energy Type1="Medium"   Type2="Necrotic">2</Energy>
 
-    <Energy Type1="Normoxic" Type2="Normoxic">4</Energy>
-    <Energy Type1="Hypoxic"  Type2="Hypoxic">4</Energy>
+    <Energy Type1="Normoxic" Type2="Normoxic">1</Energy>
+    <Energy Type1="Hypoxic"  Type2="Hypoxic">1</Energy>
     <Energy Type1="Necrotic" Type2="Necrotic">1</Energy>
 
     <Energy Type1="Normoxic" Type2="Hypoxic">5</Energy>
-    <Energy Type1="Hypoxic"  Type2="Normoxic">5</Energy>
-    <Energy Type1="Normoxic" Type2="Necrotic">1</Energy>
-    <Energy Type1="Necrotic" Type2="Normoxic">1</Energy>
-    <Energy Type1="Hypoxic"  Type2="Necrotic">1</Energy>
-    <Energy Type1="Necrotic" Type2="Hypoxic">1</Energy>
+    <Energy Type1="Normoxic" Type2="Necrotic">5</Energy>
+    <Energy Type1="Hypoxic"  Type2="Necrotic">5</Energy>
   </Plugin>
 
   <Plugin Name="NeighborTracker"/>
@@ -144,7 +138,7 @@
     <Param Name="NecroticFreezeLambda" Value="50.0" Desc="Lambda values to freeze necrotic cells"/>
     <Param Name="NecroticShrinkageRate" Value="0.5" Desc="Volume reduction rate per MCS for necrotic cells"/>
     <Param Name="NecroticMinVolume" Value="5.0" Desc="Minimum volume before necrotic cell removal"/>
-    <Param Name="NecroticLifetime" Value="25" Desc="Maximum MCS a necrotic cell exists before removal"/>
+    <Param Name="NecroticLifetime" Value="75" Desc="Maximum MCS a necrotic cell exists before removal"/>
     <Param Name="OutputFrequency" Value="50" Desc="Global analysis/log print frequency (MCS)"/>
     <Param Name="ActivityFrequency" Value="10" Desc="Frequency for activity forcer steppable"/>
     <Param Name="AnalysisRadius1" Value="10" Desc="Inner oxygen sample radius (voxels)"/>
