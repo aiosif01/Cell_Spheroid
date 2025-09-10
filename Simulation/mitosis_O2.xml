@@ -24,9 +24,9 @@
   </Plugin>
 
   <Plugin Name="Surface">
-    <SurfaceEnergyParameters CellType="Normoxic" LambdaSurface="1.5" TargetSurface="40"/>
-    <SurfaceEnergyParameters CellType="Hypoxic"  LambdaSurface="1.5" TargetSurface="38"/>
-    <SurfaceEnergyParameters CellType="Necrotic" LambdaSurface="1.0" TargetSurface="36"/>
+    <SurfaceEnergyParameters CellType="Normoxic" LambdaSurface="5.0" TargetSurface="40"/>
+    <SurfaceEnergyParameters CellType="Hypoxic"  LambdaSurface="5.0" TargetSurface="38"/>
+    <SurfaceEnergyParameters CellType="Necrotic" LambdaSurface="3.0" TargetSurface="36"/>
   </Plugin>
 
   <Plugin Name="Contact">

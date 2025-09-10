@@ -1,0 +1,9 @@
+# Ignore simulation outputs and caches
+/output/
+/output/*
+!/output/.gitkeep
+Simulation/__pycache__/
+*.pyc
+simulation.log
+*.sqlite
+# /CompuCell3D-master/
