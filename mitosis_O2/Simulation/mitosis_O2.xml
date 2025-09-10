@@ -55,12 +55,14 @@
   <Plugin Name="CenterOfMass"/>
   <Plugin Name="PixelTracker"/>
 
+  <!-- ============== OXYGEN FIELD CONFIGURATION ============== -->
   <!-- Force continuous activity to prevent early stopping -->
   <Plugin Name="Chemotaxis">
     <ChemicalField Name="Oxygen" Source="DiffusionSolverFE">
+      <!-- Living cells migrate toward higher oxygen concentrations -->
       <!-- Only living cells can move - necrotic cells excluded -->
-      <ChemotaxisByType Type="Normoxic" Lambda="10.0"/>
-      <ChemotaxisByType Type="Hypoxic" Lambda="15.0"/>
+      <ChemotaxisByType Type="Normoxic" Lambda="10.0"/>  <!-- Moderate O2 seeking -->
+      <ChemotaxisByType Type="Hypoxic" Lambda="15.0"/>   <!-- Stronger O2 seeking -->
       <!-- NO chemotaxis for necrotic cells - they're frozen -->
     </ChemicalField>
   </Plugin>
@@ -79,31 +81,34 @@
       </DiffusionData>
 
       <SecretionData>
+        <!-- Cell-type dependent oxygen consumption rates -->
         <!-- MUCH REDUCED oxygen consumption for better proliferation -->
-        <Uptake Type="Normoxic" MaxUptake="0.05" RelativeUptakeRate="0.02"/>
-        <Uptake Type="Hypoxic"  MaxUptake="0.03" RelativeUptakeRate="0.015"/>
-        <Uptake Type="Necrotic" MaxUptake="0.01" RelativeUptakeRate="0.005"/>
+        <Uptake Type="Normoxic" MaxUptake="0.05" RelativeUptakeRate="0.02"/>   <!-- Active metabolism -->
+        <Uptake Type="Hypoxic"  MaxUptake="0.03" RelativeUptakeRate="0.015"/>  <!-- Reduced metabolism -->
+        <Uptake Type="Necrotic" MaxUptake="0.01" RelativeUptakeRate="0.005"/>  <!-- Minimal metabolism -->
       </SecretionData>
 
       <BoundaryConditions>
-        <!-- Oxygen supply from boundaries (simulates vasculature) -->
+        <!-- Constant oxygen supply from all boundaries (simulates vasculature) -->
+        <!-- This creates oxygen gradients: high at periphery, low at center -->
         <Plane Axis="X">
-          <ConstantValue PlanePosition="Min" Value="1.0"/>
-          <ConstantValue PlanePosition="Max" Value="1.0"/>
+          <ConstantValue PlanePosition="Min" Value="1.0"/>  <!-- Left boundary: O2 = 1.0 -->
+          <ConstantValue PlanePosition="Max" Value="1.0"/>  <!-- Right boundary: O2 = 1.0 -->
         </Plane>
         <Plane Axis="Y">
-          <ConstantValue PlanePosition="Min" Value="1.0"/>
-          <ConstantValue PlanePosition="Max" Value="1.0"/>
+          <ConstantValue PlanePosition="Min" Value="1.0"/>  <!-- Front boundary: O2 = 1.0 -->
+          <ConstantValue PlanePosition="Max" Value="1.0"/>  <!-- Back boundary: O2 = 1.0 -->
         </Plane>
         <Plane Axis="Z">
-          <ConstantValue PlanePosition="Min" Value="1.0"/>
-          <ConstantValue PlanePosition="Max" Value="1.0"/>
+          <ConstantValue PlanePosition="Min" Value="1.0"/>  <!-- Bottom boundary: O2 = 1.0 -->
+          <ConstantValue PlanePosition="Max" Value="1.0"/>  <!-- Top boundary: O2 = 1.0 -->
         </Plane>
       </BoundaryConditions>
 
     </DiffusionField>
   </Steppable>
 
+  <!-- ============== OXYGEN-RELATED PARAMETERS ============== -->
   <!-- Centralized user-defined parameters controlling behavior of Python steppables.
     All numerical model parameters used in steppables are defined here so that
     the XML is the single source of truth. -->
@@ -122,10 +127,14 @@
     <Param Name="ForcedGrowthIncrement" Value="1.0" Desc="Additional forced growth each MCS (living cells)"/>
     <Param Name="PostDivisionGrowthFactor" Value="0.3" Desc="Post-division global growth factor per MCS"/>
     <Param Name="HypoxicVolumeReduceFactor" Value="0.95" Desc="Factor to reduce target volume on hypoxic transition"/>
+    
+    <!-- OXYGEN THRESHOLDS: Control cell fate transitions -->
     <Param Name="O2_Thresh_Normoxic" Value="0.90" Desc="O2 above which hypoxic reverts to normoxic"/>
     <Param Name="O2_Thresh_Hypoxic" Value="0.08" Desc="O2 below which normoxic becomes hypoxic"/>
     <Param Name="O2_Thresh_Necrotic" Value="0.03" Desc="O2 below which cell becomes necrotic"/>
     <Param Name="O2_Reset_Threshold" Value="0.5" Desc="Early MCS oxygen reset if center below this"/>
+    
+    <!-- DIVISION PARAMETERS: Oxygen-dependent proliferation -->
     <Param Name="DivisionVolume" Value="25.0" Desc="Volume threshold to consider division"/>
     <Param Name="DivProbHighO2" Value="0.99" Desc="Division probability at high O2"/>
     <Param Name="DivProbMedO2" Value="0.75" Desc="Division probability at medium O2 range"/>
@@ -135,12 +144,15 @@
     <Param Name="DivO2Lower" Value="0.10" Desc="O2 cutoff for slightly reduced medium probability"/>
     <Param Name="DivO2LowEdge" Value="0.08" Desc="Lowest O2 for medium probability scaling"/>
     <Param Name="DivHypoxicMin" Value="0.07" Desc="Minimum O2 for hypoxic division consideration"/>
+    
     <Param Name="NecroticFreezeLambda" Value="50.0" Desc="Lambda values to freeze necrotic cells"/>
     <Param Name="NecroticShrinkageRate" Value="0.5" Desc="Volume reduction rate per MCS for necrotic cells"/>
     <Param Name="NecroticMinVolume" Value="5.0" Desc="Minimum volume before necrotic cell removal"/>
     <Param Name="NecroticLifetime" Value="75" Desc="Maximum MCS a necrotic cell exists before removal"/>
     <Param Name="OutputFrequency" Value="50" Desc="Global analysis/log print frequency (MCS)"/>
     <Param Name="ActivityFrequency" Value="10" Desc="Frequency for activity forcer steppable"/>
+    
+    <!-- OXYGEN ANALYSIS: Spatial monitoring parameters -->
     <Param Name="AnalysisRadius1" Value="10" Desc="Inner oxygen sample radius (voxels)"/>
     <Param Name="AnalysisRadius2" Value="20" Desc="Outer oxygen sample radius (voxels)"/>
   <Param Name="DivHypoxicScale" Value="0.4" Desc="Scale factor for hypoxic division probability"/>
