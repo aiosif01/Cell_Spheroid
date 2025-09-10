@@ -53,6 +53,7 @@ except Exception as e:
         'O2_Reset_Threshold': 0.5, 'DivisionVolume': 25.0, 'DivProbHighO2': 0.99, 'DivProbMedO2': 0.75,
         'DivProbLowO2': 0.05, 'DivO2High': 0.30, 'DivO2Med': 0.15, 'DivO2Lower': 0.10,
         'DivO2LowEdge': 0.08, 'DivHypoxicMin': 0.07, 'NecroticFreezeLambda': 50.0,
+        'NecroticShrinkageRate': 0.5, 'NecroticMinVolume': 5.0, 'NecroticLifetime': 25,
         'OutputFrequency': 50, 'ActivityFrequency': 10, 'AnalysisRadius1': 10, 'AnalysisRadius2': 20,
         'DivHypoxicScale': 0.4, 'DivMedScale1': 0.9, 'DivMedScale2': 0.8, 'HypoxicMaxVolumeFrac': 0.8,
         'ActivityPerturbation': 0.1, 'ActivityStableDeltaThreshold': 2, 'EarlyO2CheckWindowFactor': 0.2
@@ -108,8 +109,9 @@ class O2DrivenFateSteppable(SteppableBasePy):
             if cell.type == 0:  # skip medium
                 continue
             
-            # Necrotic cells are frozen
+            # Process necrotic cells (shrinkage and removal)
             if cell.type == self.NECROTIC:
+                self._process_necrotic_cell(cell)
                 continue
             
             x = max(0, min(int(round(cell.xCOM)), self.dim.x - 1))
@@ -149,10 +151,15 @@ class O2DrivenFateSteppable(SteppableBasePy):
     
     def _to_necrotic(self, cell):
         cell.type = self.NECROTIC
+        # Extremely high lambda values freeze necrotic cells in place (no movement)
         cell.lambdaVolume = P('NecroticFreezeLambda')
         cell.lambdaSurface = P('NecroticFreezeLambda')
         cell.targetVolume = cell.volume
         cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
+        
+        # Mark when cell became necrotic for lifetime tracking
+        cell.dict["necrotic_mcs"] = self.mcs
+        print(f"Cell {cell.id} became necrotic at MCS {self.mcs}, volume {cell.volume:.1f}")
     
     def _grow(self, cell, o2_level: float):
         if cell.type == self.NECROTIC:
@@ -171,6 +178,52 @@ class O2DrivenFateSteppable(SteppableBasePy):
             cell.targetVolume = min(P('TV_Max'), cell.targetVolume + P('ForcedGrowthIncrement'))
         
         cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
+    
+    def _process_necrotic_cell(self, cell):
+        """Handle necrotic cell shrinkage and eventual removal."""
+        # Get when cell became necrotic
+        if "necrotic_mcs" not in cell.dict:
+            cell.dict["necrotic_mcs"] = self.mcs  # Fallback for existing necrotic cells
+        
+        necrotic_age = self.mcs - cell.dict["necrotic_mcs"]
+        
+        # Check if cell should be removed (age or minimum volume)
+        if (necrotic_age >= P('NecroticLifetime') or 
+            cell.volume <= P('NecroticMinVolume')):
+            print(f"Removing necrotic cell {cell.id} at MCS {self.mcs} "
+                  f"(age: {necrotic_age}, volume: {cell.volume:.1f})")
+            self._safe_delete_cell(cell)
+            return
+        
+        # Shrink the cell by reducing target volume
+        shrinkage = P('NecroticShrinkageRate')
+        new_target = max(P('NecroticMinVolume'), cell.targetVolume - shrinkage)
+        
+        if new_target != cell.targetVolume:
+            cell.targetVolume = new_target
+            cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
+            
+            # Keep extremely high lambda values to prevent movement
+            cell.lambdaVolume = P('NecroticFreezeLambda')
+            cell.lambdaSurface = P('NecroticFreezeLambda')
+    
+    def _safe_delete_cell(self, cell):
+        """Safely delete a cell with fallback methods."""
+        try:
+            # Try standard deletion with PixelTracker
+            self.delete_cell(cell)
+        except (AttributeError, TypeError) as e:
+            print(f"PixelTracker deletion failed: {e}")
+            # Fallback: convert to medium by making it disappear gradually
+            try:
+                # Set cell type to medium (effectively removes it)
+                cell.type = 0  # Medium type
+                cell.targetVolume = 0
+                cell.targetSurface = 0
+                cell.lambdaVolume = 1000.0  # High constraint to force shrinking
+                print(f"Cell {cell.id} converted to medium type (fallback removal)")
+            except Exception as e2:
+                print(f"Fallback removal also failed: {e2}")
 
 
 class O2MitosisSteppable(MitosisSteppableBase):

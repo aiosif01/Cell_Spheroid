@@ -21,7 +21,7 @@
     <!-- Stronger volume constraints for spherical shape maintenance -->
     <VolumeEnergyParameters CellType="Normoxic" LambdaVolume="10.0" TargetVolume="35"/>
     <VolumeEnergyParameters CellType="Hypoxic"  LambdaVolume="10.0" TargetVolume="30"/>
-    <VolumeEnergyParameters CellType="Necrotic" LambdaVolume="8.0" TargetVolume="25"/>
+    <VolumeEnergyParameters CellType="Necrotic" LambdaVolume="1000.0" TargetVolume="25"/>
   </Plugin>
 
   <Plugin Name="Surface">
@@ -31,7 +31,7 @@
       Very high LambdaSurface values force spherical shapes -->
     <SurfaceEnergyParameters CellType="Normoxic" LambdaSurface="15.0" TargetSurface="52"/>
     <SurfaceEnergyParameters CellType="Hypoxic"  LambdaSurface="15.0" TargetSurface="46"/>
-    <SurfaceEnergyParameters CellType="Necrotic" LambdaSurface="12.0" TargetSurface="39"/>
+    <SurfaceEnergyParameters CellType="Necrotic" LambdaSurface="1000.0" TargetSurface="39"/>
   </Plugin>
 
   <Plugin Name="Contact">
@@ -59,6 +59,7 @@
 
   <Plugin Name="NeighborTracker"/>
   <Plugin Name="CenterOfMass"/>
+  <Plugin Name="PixelTracker"/>
 
   <!-- Force continuous activity to prevent early stopping -->
   <Plugin Name="Chemotaxis">
@@ -141,6 +142,9 @@
     <Param Name="DivO2LowEdge" Value="0.08" Desc="Lowest O2 for medium probability scaling"/>
     <Param Name="DivHypoxicMin" Value="0.07" Desc="Minimum O2 for hypoxic division consideration"/>
     <Param Name="NecroticFreezeLambda" Value="50.0" Desc="Lambda values to freeze necrotic cells"/>
+    <Param Name="NecroticShrinkageRate" Value="0.5" Desc="Volume reduction rate per MCS for necrotic cells"/>
+    <Param Name="NecroticMinVolume" Value="5.0" Desc="Minimum volume before necrotic cell removal"/>
+    <Param Name="NecroticLifetime" Value="25" Desc="Maximum MCS a necrotic cell exists before removal"/>
     <Param Name="OutputFrequency" Value="50" Desc="Global analysis/log print frequency (MCS)"/>
     <Param Name="ActivityFrequency" Value="10" Desc="Frequency for activity forcer steppable"/>
     <Param Name="AnalysisRadius1" Value="10" Desc="Inner oxygen sample radius (voxels)"/>
