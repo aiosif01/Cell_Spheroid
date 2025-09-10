@@ -1,0 +1,110 @@
+<CompuCell3D>
+
+  <Potts>
+    <Dimensions x="100" y="100" z="100"/>
+    <Steps>10000</Steps>
+    <Temperature>25</Temperature>  <!-- INCREASED for more active behavior -->
+    <NeighborOrder>2</NeighborOrder>
+    <Boundary_x>Periodic</Boundary_x> <!-- Add periodic boundaries for more dynamic behavior -->
+    <Boundary_y>Periodic</Boundary_y>
+    <Boundary_z>Periodic</Boundary_z>
+  </Potts>
+
+  <Plugin Name="CellType">
+    <CellType TypeName="Medium"   TypeId="0"/>
+    <CellType TypeName="Normoxic" TypeId="1"/>
+    <CellType TypeName="Hypoxic"  TypeId="2"/>
+    <CellType TypeName="Necrotic" TypeId="3"/>
+  </Plugin>
+
+  <Plugin Name="Volume">
+    <!-- Adjusted volumes for better 3D spheroid behavior -->
+    <VolumeEnergyParameters CellType="Normoxic" LambdaVolume="5.0" TargetVolume="35"/>
+    <VolumeEnergyParameters CellType="Hypoxic"  LambdaVolume="5.0" TargetVolume="30"/>
+    <VolumeEnergyParameters CellType="Necrotic" LambdaVolume="3.0" TargetVolume="25"/>
+  </Plugin>
+
+  <Plugin Name="Surface">
+    <!-- Adjusted surface parameters for 3D -->
+    <SurfaceEnergyParameters CellType="Normoxic" LambdaSurface="1.5" TargetSurface="40"/>
+    <SurfaceEnergyParameters CellType="Hypoxic"  LambdaSurface="1.5" TargetSurface="38"/>
+    <SurfaceEnergyParameters CellType="Necrotic" LambdaSurface="1.0" TargetSurface="36"/>
+  </Plugin>
+
+  <Plugin Name="Contact">
+
+    <!-- Medium / Medium -->
+    <Energy Type1="Medium"   Type2="Medium">0</Energy>
+
+    <Energy Type1="Medium"   Type2="Normoxic">10</Energy>
+    <Energy Type1="Normoxic" Type2="Medium">10</Energy>
+    <Energy Type1="Medium"   Type2="Hypoxic">10</Energy>
+    <Energy Type1="Hypoxic"  Type2="Medium">10</Energy>
+    <Energy Type1="Medium"   Type2="Necrotic">6</Energy>
+    <Energy Type1="Necrotic" Type2="Medium">6</Energy>
+
+    <Energy Type1="Normoxic" Type2="Normoxic">4</Energy>
+    <Energy Type1="Hypoxic"  Type2="Hypoxic">4</Energy>
+    <Energy Type1="Necrotic" Type2="Necrotic">1</Energy>
+
+    <Energy Type1="Normoxic" Type2="Hypoxic">5</Energy>
+    <Energy Type1="Hypoxic"  Type2="Normoxic">5</Energy>
+    <Energy Type1="Normoxic" Type2="Necrotic">1</Energy>
+    <Energy Type1="Necrotic" Type2="Normoxic">1</Energy>
+    <Energy Type1="Hypoxic"  Type2="Necrotic">1</Energy>
+    <Energy Type1="Necrotic" Type2="Hypoxic">1</Energy>
+  </Plugin>
+
+  <Plugin Name="NeighborTracker"/>
+  <Plugin Name="CenterOfMass"/>
+
+  <!-- Force continuous activity to prevent early stopping -->
+  <Plugin Name="Chemotaxis">
+    <ChemicalField Name="Oxygen" Source="DiffusionSolverFE">
+      <!-- Only living cells can move - necrotic cells excluded -->
+      <ChemotaxisByType Type="Normoxic" Lambda="10.0"/>
+      <ChemotaxisByType Type="Hypoxic" Lambda="15.0"/>
+      <!-- NO chemotaxis for necrotic cells - they're frozen -->
+    </ChemicalField>
+  </Plugin>
+
+  <!-- Improved oxygen diffusion system for spheroid formation -->
+  <Steppable Type="DiffusionSolverFE">
+    <DiffusionField Name="Oxygen">
+      <DiffusionData>
+        <FieldName>Oxygen</FieldName>
+        <!-- Realistic oxygen diffusion in tissue-like medium -->
+        <DiffusionConstant>0.1</DiffusionConstant>
+        <!-- No bulk decay - oxygen only consumed by cells -->
+        <DecayConstant>0.0</DecayConstant>
+        <!-- UNIFORM oxygen throughout entire domain at t=0 -->
+        <InitialConcentration>1.0</InitialConcentration>
+      </DiffusionData>
+
+      <SecretionData>
+        <!-- MUCH REDUCED oxygen consumption for better proliferation -->
+        <Uptake Type="Normoxic" MaxUptake="0.05" RelativeUptakeRate="0.02"/>
+        <Uptake Type="Hypoxic"  MaxUptake="0.03" RelativeUptakeRate="0.015"/>
+        <Uptake Type="Necrotic" MaxUptake="0.01" RelativeUptakeRate="0.005"/>
+      </SecretionData>
+
+      <BoundaryConditions>
+        <!-- Oxygen supply from boundaries (simulates vasculature) -->
+        <Plane Axis="X">
+          <ConstantValue PlanePosition="Min" Value="1.0"/>
+          <ConstantValue PlanePosition="Max" Value="1.0"/>
+        </Plane>
+        <Plane Axis="Y">
+          <ConstantValue PlanePosition="Min" Value="1.0"/>
+          <ConstantValue PlanePosition="Max" Value="1.0"/>
+        </Plane>
+        <Plane Axis="Z">
+          <ConstantValue PlanePosition="Min" Value="1.0"/>
+          <ConstantValue PlanePosition="Max" Value="1.0"/>
+        </Plane>
+      </BoundaryConditions>
+
+    </DiffusionField>
+  </Steppable>
+
+</CompuCell3D>

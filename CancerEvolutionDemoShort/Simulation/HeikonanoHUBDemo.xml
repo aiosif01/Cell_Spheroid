@@ -1,0 +1,78 @@
+<CompuCell3D Revision="20200912" Version="4.2.0">
+   
+   <Metadata>
+      
+      <!-- Basic properties simulation -->
+      <NumberOfProcessors>4</NumberOfProcessors>
+      <DebugOutputFrequency>10</DebugOutputFrequency>
+      <!-- <NonParallelModule Name="Potts"/> -->
+   </Metadata>
+   
+   <Potts>
+      
+      <!-- Basic properties of CPM (GGH) algorithm -->
+      <Dimensions x="128" y="128" z="128"/>
+      <!-- Default is 256 x 256  -->
+      <Steps>10000</Steps>
+      <Temperature>5.0</Temperature>
+      <NeighborOrder>3</NeighborOrder>
+      <Boundary_x>Periodic</Boundary_x>
+      <Boundary_y>Periodic</Boundary_y>
+      <Boundary_z>Periodic</Boundary_z>
+   </Potts>
+   
+   <Plugin Name="CellType">
+      
+      <!-- Listing all cell types in the simulation -->
+      <CellType TypeId="0" TypeName="Medium"/>
+      <CellType TypeId="1" TypeName="Stem"/>
+      <CellType TypeId="2" TypeName="Somatic"/>
+      <CellType TypeId="3" TypeName="Necrotic"/>
+   </Plugin>
+   
+   <Plugin Name="Volume"/>
+   
+   <Plugin Name="CenterOfMass">
+      
+      <!-- Module tracking center of mass of each cell -->
+   </Plugin>
+   
+   <Plugin Name="NeighborTracker">
+      
+      <!-- Module tracking neighboring cells of each cell -->
+   </Plugin>
+   
+   <Plugin Name="Contact">
+      <!-- Specification of adhesion energies -->
+      <Energy Type1="Medium" Type2="Medium">5.0</Energy>
+      <Energy Type1="Medium" Type2="Stem">5.0</Energy>
+      <Energy Type1="Medium" Type2="Somatic">5.0</Energy>
+      <Energy Type1="Medium" Type2="Necrotic">5.0</Energy>
+      <!-- <Energy Type1="Stem" Type2="Stem">10.0</Energy> -->
+      <!-- <Energy Type1="Stem" Type2="Somatic">10.0</Energy> -->
+      <!-- <Energy Type1="Stem" Type2="Necrotic">10.0</Energy> -->
+      <!-- <Energy Type1="Stem" Type2="Protective">10.0</Energy> -->
+      <!-- <Energy Type1="Somatic" Type2="Somatic">10.0</Energy> -->
+      <!-- <Energy Type1="Somatic" Type2="Necrotic">10.0</Energy> -->
+      <!-- <Energy Type1="Somatic" Type2="Protective">10.0</Energy> -->
+      <!-- <Energy Type1="Necrotic" Type2="Necrotic">10.0</Energy> -->
+      <!-- <Energy Type1="Necrotic" Type2="Protective">10.0</Energy> -->
+      <NeighborOrder>10</NeighborOrder>
+   </Plugin>
+   
+   
+   
+   <Steppable Type="BlobInitializer">
+      
+      <!-- Initial layout of cells in the form of spherical (circular in 2D) blob -->
+      <Region>
+         <Center x="64" y="64" z="64"/>
+         <Radius>13</Radius>
+         Default is 13 above
+         <Gap>3</Gap>
+         <Width>0.5</Width>
+         <!-- Changing the width changes initial number of stem cells was 7-->
+         <Types>Stem</Types>
+      </Region>
+   </Steppable>
+</CompuCell3D>

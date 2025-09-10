@@ -1,0 +1,5 @@
+<Simulation version="4.7.0">
+   <XMLScript Type="XMLScript">Simulation/mitosis_O2.xml</XMLScript>
+   <PythonScript Type="PythonScript">Simulation/mitosis_O2.py</PythonScript>
+   <Resource Type="Python">Simulation/mitosis_O2Steppables.py</Resource>
+</Simulation>

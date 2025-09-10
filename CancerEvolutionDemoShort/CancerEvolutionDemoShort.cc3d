@@ -1,0 +1,5 @@
+<Simulation version="4.2.2">
+   <XMLScript Type="XMLScript">Simulation/HeikonanoHUBDemo.xml</XMLScript>
+   <PythonScript Type="PythonScript">Simulation/HeikonanoHUBDemo.py</PythonScript>
+   <Resource Type="Python">Simulation/HeikonanoHUBDemoSteppables.py</Resource>
+</Simulation>
