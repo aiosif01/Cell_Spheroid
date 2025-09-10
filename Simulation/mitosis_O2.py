@@ -18,6 +18,6 @@ CompuCellSetup.register_steppable(LightAnalysisSteppable(frequency=50))
 CompuCellSetup.register_steppable(ActivityForcerSteppable(frequency=10))
 
 # Register VTK output steppable - exports every 50 MCS for ParaView visualization
-CompuCellSetup.register_steppable(VTKOutputSteppable(frequency=50, output_dir="vtk_output"))
+CompuCellSetup.register_steppable(VTKOutputSteppable(frequency=50))
 
 CompuCellSetup.run()
