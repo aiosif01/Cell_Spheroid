@@ -5,6 +5,7 @@ from mitosis_O2Steppables import (
 	SingleCellInitSteppable,
 	O2DrivenFateSteppable,
 	O2MitosisSteppable,
+	RadiotherapySteppable,
 	LightAnalysisSteppable
 )
 
@@ -15,6 +16,7 @@ CompuCellSetup.register_steppable(SingleCellInitSteppable(frequency=1))
 # Core simulation steppables run every step (frequency=1)
 CompuCellSetup.register_steppable(O2DrivenFateSteppable(frequency=1))
 CompuCellSetup.register_steppable(O2MitosisSteppable(frequency=1))
+CompuCellSetup.register_steppable(RadiotherapySteppable(frequency=1))
 # Analysis steppable uses internal XML-controlled frequency
 CompuCellSetup.register_steppable(LightAnalysisSteppable(frequency=1))
 

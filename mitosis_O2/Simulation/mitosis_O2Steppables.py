@@ -237,6 +237,78 @@ class O2MitosisSteppable(MitosisSteppableBase):
         )
 
 
+# ------------------------- RADIOTHERAPY (LQ MODEL) ---------------------------- #
+class RadiotherapySteppable(SteppableBasePy):
+    """Delivers radiotherapy fractions using LQ survival: SR = exp(-(alpha*D + beta*D^2)).
+    Applies only to Normoxic cells. Kills with probability (1 - SR) at fraction times.
+    Fraction schedule controlled via XML UserParameters (RT_*).
+    """
+    def __init__(self, frequency=1):
+        super().__init__(frequency)
+        self.fractions_delivered = 0
+        self.last_fraction_mcs = -1
+        self.total_exposed = 0
+        self.total_killed = 0
+
+    def start(self):
+        self.fractions_delivered = 0
+        self.last_fraction_mcs = -1
+        self.total_exposed = 0
+        self.total_killed = 0
+
+    def step(self, mcs):
+        if int(P('RT_Enable')) == 0:
+            return
+        total_fr = int(P('RT_Fractions'))
+        if self.fractions_delivered >= total_fr:
+            return
+        start = int(P('RT_StartMCS'))
+        period = max(1, int(P('RT_PeriodMCS')))
+        if mcs < start:
+            return
+        if (mcs - start) % period != 0:
+            return
+        if mcs == self.last_fraction_mcs:  # guard if step called multiple times per MCS
+            return
+        self._deliver_fraction(mcs)
+
+    def _deliver_fraction(self, mcs):
+        D = float(P('RT_DoseGy'))
+        alpha = float(P('RT_Alpha'))
+        beta = float(P('RT_Beta'))
+        SR = math.exp(-(alpha * D + beta * (D ** 2)))
+        kill_prob = max(0.0, min(1.0, 1.0 - SR))
+
+        normoxic_cells = list(self.cell_list_by_type(self.NORMOXIC))
+        n_before = len(normoxic_cells)
+        killed = 0
+        for cell in normoxic_cells:
+            if random.random() < kill_prob:
+                # Convert to necrotic and let existing necrosis logic handle shrink and removal
+                cell.type = self.NECROTIC
+                cell.targetVolume = cell.volume
+                try:
+                    cell.targetSurface = cell.surface
+                except Exception:
+                    cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+                cell.dict['necrotic_mcs'] = mcs
+                killed += 1
+
+        survived = n_before - killed
+        observed_SR = (survived / n_before) if n_before > 0 else 1.0
+        # Update cumulative stats
+        self.total_exposed += n_before
+        self.total_killed += killed
+        cumulative_SR = ((self.total_exposed - self.total_killed) / self.total_exposed) if self.total_exposed > 0 else 1.0
+        self.fractions_delivered += 1
+        self.last_fraction_mcs = mcs
+
+        print(
+            f"[RT] MCS {mcs} fraction {self.fractions_delivered} D={D:g}Gy SR={SR:.3f} killProb={kill_prob:.3f} "
+            f"normoxic_before={n_before} killed={killed} survived={survived} SR_obs={observed_SR:.3f} "
+            f"SR_cum={cumulative_SR:.3f}"
+        )
+
 # ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
 class LightAnalysisSteppable(SteppableBasePy):
     def start(self):
