@@ -177,15 +177,34 @@ class O2DrivenFateSteppable(SteppableBasePy):
     def _process_necrotic(self, cell):
         if 'necrotic_mcs' not in cell.dict:
             cell.dict['necrotic_mcs'] = self.mcs
+        
         age = self.mcs - cell.dict['necrotic_mcs']
-        if age >= P('NecroticLifetime'):
-            self._safe_delete(cell)
-            return
-        # Simple volume shrinkage
+        
+        if age >= int(P('NecroticLifetime')):
+            try:
+                # Force cell to shrink to zero before deletion
+                cell.targetVolume = 1
+                cell.lambdaVolume = 100.0  # Very strong constraint
+                # Try deletion
+                self.delete_cell(cell)
+                print(f"[DELETE-SUCCESS] Cell {cell.id} removed after {age} MCS")
+                return
+            except Exception as e:
+                # If deletion fails, just make it invisible by shrinking
+                cell.targetVolume = 1
+                cell.lambdaVolume = 100.0
+                print(f"[DELETE-FALLBACK] Cell {cell.id} shrunk to near-zero, age={age}")
+                return
+        
+        # Normal shrinkage
         shrink_rate = P('NecroticShrinkageRate')
         if shrink_rate > 0:
-            cell.targetVolume = max(1.0, cell.targetVolume - shrink_rate)
-            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+            old_target = cell.targetVolume
+            cell.targetVolume = max(0.1, cell.targetVolume - shrink_rate)
+            
+            # Debug shrinkage
+            if age % 10 == 0:
+                print(f"[SHRINK] Cell {cell.id} age={age} target: {old_target:.1f}->{cell.targetVolume:.1f} actual={cell.volume:.1f}")
 
     def _safe_delete(self, cell):
         try:
