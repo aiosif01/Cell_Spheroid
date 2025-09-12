@@ -237,6 +237,24 @@ class O2MitosisSteppable(MitosisSteppableBase):
         )
 
 
+# ------------------------- CENTRAL COMPACTION ---------------------------- #
+class CenterCompactionSteppable(SteppableBasePy):
+    """Applies an inward force to living cells to close gaps left by necrotic removal."""
+
+    def step(self, mcs):
+        cx, cy, cz = self.dim.x / 2.0, self.dim.y / 2.0, self.dim.z / 2.0
+        strength = P('CenterPushStrength')
+        for cell in self.cell_list:
+            if cell.type in (0, self.NECROTIC):
+                continue
+            dx = cx - cell.xCOM
+            dy = cy - cell.yCOM
+            dz = cz - cell.zCOM
+            cell.lambdaVecX = strength * dx
+            cell.lambdaVecY = strength * dy
+            cell.lambdaVecZ = strength * dz
+
+
 # ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
 class LightAnalysisSteppable(SteppableBasePy):
     def start(self):
@@ -266,3 +284,4 @@ class LightAnalysisSteppable(SteppableBasePy):
         if mcs % (int(P('OutputFrequency')) * 2) == 0:
             print(f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} "
                   f"N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}")
+
