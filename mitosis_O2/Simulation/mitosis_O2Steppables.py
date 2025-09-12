@@ -1,5 +1,5 @@
 from cc3d.core.PySteppables import *
-import random, os
+import random, os, math
 from xml.dom import minidom
 
 # ------------------------- PARAMETER HANDLING ---------------------------- #
@@ -46,26 +46,32 @@ class OxygenInitSteppable(SteppableBasePy):
 # ------------------------- SINGLE CELL INITIALIZATION ---------------------------- #
 class SingleCellInitSteppable(SteppableBasePy):
     def start(self):
-        # Create exactly one cell at center
+        # Create exactly one cell at center - simple approach like CC3D examples
         cx, cy, cz = self.dim.x // 2, self.dim.y // 2, self.dim.z // 2
-        radius = 2.2
+        initial_radius = P('InitialCellRadius')
         cell = self.new_cell(self.NORMOXIC)
         
-        # Create spherical cell manually to ensure single cell
-        # Convert radius to integer for range, but use float for distance calculation
-        radius_int = int(radius) + 1  # Add 1 to ensure we cover the full radius
+        # Fill spherical region
+        radius_int = int(initial_radius) + 1
         for x in range(cx - radius_int, cx + radius_int + 1):
             for y in range(cy - radius_int, cy + radius_int + 1):
                 for z in range(cz - radius_int, cz + radius_int + 1):
                     if 0 <= x < self.dim.x and 0 <= y < self.dim.y and 0 <= z < self.dim.z:
-                        if (x-cx)**2 + (y-cy)**2 + (z-cz)**2 <= radius*radius:
+                        if (x-cx)**2 + (y-cy)**2 + (z-cz)**2 <= initial_radius*initial_radius:
                             self.cell_field[x, y, z] = cell
 
-        # Initialize target volume and a persistent division threshold per cell
-        # Each cell will divide when it reaches ~2x its "birth" targetVolume
+        # Set per-type lambdas under Python control
+        cell.lambdaVolume = P('LambdaVolumeNormoxic')
+        cell.lambdaSurface = P('LambdaSurfaceNormoxic')
+
+        # Simple initialization - set targets to current measured values to avoid XML defaults
         cell.targetVolume = cell.volume
-        cell.dict['V_div'] = max(2.0 * cell.targetVolume, cell.volume + 30.0)
-        print(f"[INIT] Created single cell {cell.id} at center ({cx},{cy},{cz}) vol={cell.volume:.1f} targetVol={cell.targetVolume:.1f} V_div={cell.dict['V_div']:.1f}")
+        try:
+            cell.targetSurface = cell.surface
+        except Exception:
+            # Fallback to spherical estimate if surface not available
+            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+        print(f"[INIT] Created single cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
 
         # Ensure only one cell
         for other_cell in list(self.cell_list):
@@ -95,6 +101,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
             z = min(max(int(round(cell.zCOM)), 0), self.dim.z - 1)
             o2 = float(oxy[x, y, z])
 
+            # FIELD-DRIVEN PHENOTYPE CHANGES (this is what you want to keep!)
             if cell.type == self.NORMOXIC:
                 if o2 < P('O2_Thresh_Necrotic'):
                     self._to_necrotic(cell); continue
@@ -109,30 +116,63 @@ class O2DrivenFateSteppable(SteppableBasePy):
             self._grow(cell)
 
     def _to_normoxic(self, cell):
+        # Preserve/restore per-cell targets on type switch to avoid XML target resets
+        prev_tv = getattr(cell, 'targetVolume', cell.volume)
         cell.type = self.NORMOXIC
+        # Assign per-type lambdas under Python control
+        cell.lambdaVolume = P('LambdaVolumeNormoxic')
+        cell.lambdaSurface = P('LambdaSurfaceNormoxic')
+        # Keep previous target volume (do not reset to current volume)
+        cell.targetVolume = prev_tv
+        # Keep surface coherent with target volume
+        cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
 
     def _to_hypoxic(self, cell):
+        prev_tv = getattr(cell, 'targetVolume', cell.volume)
         cell.type = self.HYPOXIC
+        cell.lambdaVolume = P('LambdaVolumeHypoxic')
+        cell.lambdaSurface = P('LambdaSurfaceHypoxic')
+        # Keep previous target volume (do not reset to current volume)
+        cell.targetVolume = prev_tv
+        # Keep surface coherent with target volume
+        cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
 
     def _to_necrotic(self, cell):
         cell.type = self.NECROTIC
-        cell.targetVolume = cell.volume  # freeze current size
+        # Assign per-type lambdas under Python control
+        cell.lambdaVolume = P('LambdaVolumeNecrotic')
+        cell.lambdaSurface = P('LambdaSurfaceNecrotic')
+        # Freeze volume when becoming necrotic
+        cell.targetVolume = cell.volume
+        try:
+            cell.targetSurface = cell.surface
+        except Exception:
+            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
         cell.dict['necrotic_mcs'] = self.mcs
         print(f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}")
 
     def _grow(self, cell):
-        # Simple growth like in CC3D examples - just increment targetVolume directly
+        # Absolute control over target volume/surface
         if cell.type in (self.NORMOXIC, self.HYPOXIC):
-            rate = P('GrowthRateNormoxic') if cell.type == self.NORMOXIC else P('GrowthRateHypoxic')
-            if rate <= 0:
+            growth_rate = P('GrowthRateNormoxic') if cell.type == self.NORMOXIC else P('GrowthRateHypoxic')
+
+            if growth_rate <= 0:
+                # Keep previous targets unchanged to maintain a stable volume constraint
+                # Update surface to remain consistent with the current target volume
+                cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
                 return
-            old = cell.targetVolume
-            cell.targetVolume += rate
-            # Keep a reasonable cap so target doesn't run away far beyond division threshold
-            if 'V_div' in cell.dict:
-                cell.targetVolume = min(cell.targetVolume, cell.dict['V_div'])
+
+            # Accumulate target volume growth deterministically
+            old_tv = cell.targetVolume
+            cell.targetVolume = old_tv + growth_rate
+            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+
             if self.mcs % int(P('OutputFrequency')) == 0:
-                print(f"[GROW] MCS {self.mcs} cell {cell.id} type={cell.type} vol={cell.volume:.1f} targetVol {old:.1f}->{cell.targetVolume:.1f} V_div={cell.dict.get('V_div','n/a')}")
+                print(
+                    f"[GROW] MCS {self.mcs} cell {cell.id} type={cell.type} "
+                    f"vol={cell.volume:.1f} targetVol {old_tv:.1f}->{cell.targetVolume:.1f} "
+                    f"targetSurf->{cell.targetSurface:.1f}"
+                )
 
     def _process_necrotic(self, cell):
         if 'necrotic_mcs' not in cell.dict:
@@ -141,9 +181,11 @@ class O2DrivenFateSteppable(SteppableBasePy):
         if age >= P('NecroticLifetime'):
             self._safe_delete(cell)
             return
-        shrink = P('NecroticShrinkageRate')
-        if shrink > 0:
-            cell.targetVolume = max(0, cell.targetVolume - shrink)
+        # Simple volume shrinkage
+        shrink_rate = P('NecroticShrinkageRate')
+        if shrink_rate > 0:
+            cell.targetVolume = max(1.0, cell.targetVolume - shrink_rate)
+            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
 
     def _safe_delete(self, cell):
         try:
@@ -160,34 +202,39 @@ class O2MitosisSteppable(MitosisSteppableBase):
         self.set_parent_child_position_flag(0)
 
     def step(self, mcs):
-        # Divide when actual volume reaches a persistent per-cell threshold
+        # Simple volume-based division like CC3D examples
+        cells_to_divide = []
         for cell in self.cell_list:
             if cell.type in (0, self.NECROTIC):
                 continue
-            v_div = cell.dict.get('V_div', None)
-            if v_div is None:
-                # Initialize if missing (e.g., cells loaded from old state)
-                cell.dict['V_div'] = max(2.0 * max(cell.targetVolume, 1.0), cell.volume + 30.0)
-                v_div = cell.dict['V_div']
-            if cell.volume >= v_div:
+            # Do not allow division if growth is disabled for this phenotype
+            if (cell.type == self.NORMOXIC and P('GrowthRateNormoxic') <= 0) or \
+               (cell.type == self.HYPOXIC and P('GrowthRateHypoxic') <= 0):
+                continue
+            # Simple rule: divide when volume > 2x initial volume
+            if cell.volume > P('DivisionVolumeThreshold'):
                 prob = P('DivProbNormoxic') if cell.type == self.NORMOXIC else P('DivProbHypoxic')
                 if random.random() < prob:
-                    print(f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f} V_div={v_div:.1f}")
-                    self.divide_cell_random_orientation(cell)
+                    cells_to_divide.append(cell)
+
+        for cell in cells_to_divide:
+            print(f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
+            self.divide_cell_random_orientation(cell)
 
     def update_attributes(self):
-        # After division, split targets and set a new division threshold for each daughter
-        # First, clone parent's attributes to child so both share phenotype and CC3D state
+        # Post-mitosis: split target volumes and keep surfaces coherent.
+        self.parent_cell.targetVolume /= 2.0
         self.clone_parent_2_child()
-        # Halve target volumes so each daughter will grow again
-        self.parent_cell.targetVolume = max(1.0, self.parent_cell.volume)
-        self.child_cell.targetVolume = max(1.0, self.child_cell.volume)
-        # Keep the same phenotype
         self.child_cell.type = self.parent_cell.type
-        # Set new division thresholds for both daughters
-        self.parent_cell.dict['V_div'] = max(2.0 * self.parent_cell.targetVolume, self.parent_cell.volume + 30.0)
-        self.child_cell.dict['V_div'] = max(2.0 * self.child_cell.targetVolume, self.child_cell.volume + 30.0)
-        print(f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} targets=({self.parent_cell.targetVolume:.1f},{self.child_cell.targetVolume:.1f}) next V_div=({self.parent_cell.dict['V_div']:.1f},{self.child_cell.dict['V_div']:.1f})")
+
+        # Recompute target surfaces. Do not reset targets to current volume even if growth is zero.
+        for c in (self.parent_cell, self.child_cell):
+            c.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (c.targetVolume ** (2.0 / 3.0))
+
+        print(
+            f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} "
+            f"parentTV={self.parent_cell.targetVolume:.1f} childTV={self.child_cell.targetVolume:.1f}"
+        )
 
 
 # ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
@@ -215,10 +262,7 @@ class LightAnalysisSteppable(SteppableBasePy):
         for k in counts:
             self.plot_counts.add_data_point(k, mcs, counts[k])
         
-        # Debug info every 10*OutputFrequency
-        if mcs % (int(P('OutputFrequency')) * 10) == 0:
-            print(f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}")
-            # Show individual cell details
-            for cell in self.cell_list:
-                print(f"  Cell {cell.id}: type={cell.type} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
-
+        # Simple debug info
+        if mcs % (int(P('OutputFrequency')) * 2) == 0:
+            print(f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} "
+                  f"N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}")
