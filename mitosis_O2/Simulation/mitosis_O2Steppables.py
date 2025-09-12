@@ -1,397 +1,224 @@
 from cc3d.core.PySteppables import *
-import random
-import math
+import random, os
 from xml.dom import minidom
 
-# Spherical surface approximation
-SPHERE_SURFACE_FACTOR = (36 * math.pi) ** (1.0 / 3.0)
-
-def spherical_surface_from_volume(volume: float) -> float:
-    if volume <= 0:
-        return 0.0
-    return SPHERE_SURFACE_FACTOR * (volume ** (2.0 / 3.0))
-
-def _load_user_parameters(xml_path: str):
-    """Load all parameters from XML UserParameters/Param elements."""
-    import os
-    # If relative path fails, try in same directory as this script
+# ------------------------- PARAMETER HANDLING ---------------------------- #
+def _load_user_parameters(xml_filename: str) -> dict:
+    """Parses <UserParameters><Param Name= Value= /></UserParameters> into a dict."""
+    xml_path = xml_filename
     if not os.path.exists(xml_path):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        xml_path = os.path.join(script_dir, xml_path)
+        xml_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), xml_filename)
+    if not os.path.exists(xml_path):
+        raise FileNotFoundError(f"Cannot find XML file '{xml_filename}' relative to simulation script or steppable directory")
     doc = minidom.parse(xml_path)
-    up_nodes = doc.getElementsByTagName('UserParameters')
-    if not up_nodes:
+    user_nodes = doc.getElementsByTagName('UserParameters')
+    if not user_nodes:
         raise RuntimeError('UserParameters block missing in XML')
     params = {}
-    for p in up_nodes[0].getElementsByTagName('Param'):
-        name = p.getAttribute('Name')
-        val = p.getAttribute('Value')
+    for node in user_nodes[0].getElementsByTagName('Param'):
+        name = node.getAttribute('Name')
+        val = node.getAttribute('Value')
         if not name:
             continue
         try:
-            if '.' in val or 'e' in val.lower():
-                params[name] = float(val)
-            else:
-                params[name] = int(val)
+            params[name] = float(val) if ('.' in val or 'e' in val.lower()) else int(val)
         except ValueError:
-            raise RuntimeError(f'Invalid numeric value for parameter {name}: {val}')
+            raise RuntimeError(f"Parameter {name} has non-numeric value '{val}'")
     return params
 
-# Load parameters safely with error handling
-try:
-    PARAMS = _load_user_parameters('mitosis_O2.xml')
-    print(f"Successfully loaded {len(PARAMS)} parameters from XML")
-except Exception as e:
-    print(f"Warning: Failed to load XML parameters: {e}")
-    # Use safe defaults to prevent crash
-    PARAMS = {
-        'InitRadius': 2, 'SeedTargetVolume': 35, 'SeedLambdaVolume': 10.0, 'SeedLambdaSurface': 15.0,
-        'EarliestDivisionMCS': 50, 'TV_Min': 15.0, 'TV_Max': 80.0, 'GrowthRateNormoxic': 15.0,
-        'GrowthRateHypoxic': 1.0, 'GrowthBoostNormoxic': 2.0, 'GrowthBoostHypoxic': 2.0,
-        'ForcedGrowthIncrement': 1.0, 'PostDivisionGrowthFactor': 0.3, 'HypoxicVolumeReduceFactor': 0.95,
-        'O2_Thresh_Normoxic': 0.90, 'O2_Thresh_Hypoxic': 0.08, 'O2_Thresh_Necrotic': 0.03,
-        'O2_Reset_Threshold': 0.5, 'DivisionVolume': 25.0, 'DivProbHighO2': 0.99, 'DivProbMedO2': 0.75,
-        'DivProbLowO2': 0.05, 'DivO2High': 0.30, 'DivO2Med': 0.15, 'DivO2Lower': 0.10,
-        'DivO2LowEdge': 0.08, 'DivHypoxicMin': 0.07, 'NecroticFreezeLambda': 50.0,
-        'NecroticShrinkageRate': 0.5, 'NecroticMinVolume': 5.0, 'NecroticLifetime': 25,
-        'OutputFrequency': 50, 'ActivityFrequency': 10, 'AnalysisRadius1': 10, 'AnalysisRadius2': 20,
-        'DivHypoxicScale': 0.4, 'DivMedScale1': 0.9, 'DivMedScale2': 0.8, 'HypoxicMaxVolumeFrac': 0.8,
-        'ActivityPerturbation': 0.1, 'ActivityStableDeltaThreshold': 2, 'EarlyO2CheckWindowFactor': 0.2
-    }
-    print("Using fallback default parameters")
+PARAMS = _load_user_parameters('mitosis_O2.xml')
+print(f"[PARAM] Loaded {len(PARAMS)} parameters from XML")
 
-def P(name):
-    """Convenience accessor for parameters with error checking."""
+def P(name: str):
     if name not in PARAMS:
-        print(f"Warning: Missing parameter {name}, using default")
-        return 1.0  # Safe default
+        raise KeyError(f"Missing required parameter '{name}' in XML <UserParameters>")
     return PARAMS[name]
 
 
-class InitializationSteppable(SteppableBasePy):
+# ------------------------- OXYGEN INITIALIZATION ---------------------------- #
+class OxygenInitSteppable(SteppableBasePy):
     def start(self):
-        """Initialize exactly one spherical seed cell at lattice center."""
+        # Ensure entire oxygen field starts at 1.0
+        self.field.Oxygen[:, :, :] = 1.0
+        print(f"[OXYGEN] Initialized entire domain to concentration 1.0")
+
+
+# ------------------------- SINGLE CELL INITIALIZATION ---------------------------- #
+class SingleCellInitSteppable(SteppableBasePy):
+    def start(self):
+        # Create exactly one cell at center
         cx, cy, cz = self.dim.x // 2, self.dim.y // 2, self.dim.z // 2
-        seed_cell = self.new_cell(self.NORMOXIC)
+        radius = 2.2
+        cell = self.new_cell(self.NORMOXIC)
         
-        r = int(P('InitRadius'))
-        for x in range(cx - r, cx + r + 1):
-            for y in range(cy - r, cy + r + 1):
-                for z in range(cz - r, cz + r + 1):
+        # Create spherical cell manually to ensure single cell
+        # Convert radius to integer for range, but use float for distance calculation
+        radius_int = int(radius) + 1  # Add 1 to ensure we cover the full radius
+        for x in range(cx - radius_int, cx + radius_int + 1):
+            for y in range(cy - radius_int, cy + radius_int + 1):
+                for z in range(cz - radius_int, cz + radius_int + 1):
                     if 0 <= x < self.dim.x and 0 <= y < self.dim.y and 0 <= z < self.dim.z:
-                        if (x - cx)**2 + (y - cy)**2 + (z - cz)**2 <= r**2:
-                            self.cell_field[x, y, z] = seed_cell
-        
-        # Set initial cell properties from XML parameters
-        seed_cell.targetVolume = P('SeedTargetVolume')
-        seed_cell.lambdaVolume = P('SeedLambdaVolume')
-        seed_cell.targetSurface = spherical_surface_from_volume(seed_cell.targetVolume)
-        seed_cell.lambdaSurface = P('SeedLambdaSurface')
-        
-        print(f"Seed cell initialized: radius={r}, targetV={seed_cell.targetVolume}")
+                        if (x-cx)**2 + (y-cy)**2 + (z-cz)**2 <= radius*radius:
+                            self.cell_field[x, y, z] = cell
+
+        # Initialize target volume and a persistent division threshold per cell
+        # Each cell will divide when it reaches ~2x its "birth" targetVolume
+        cell.targetVolume = cell.volume
+        cell.dict['V_div'] = max(2.0 * cell.targetVolume, cell.volume + 30.0)
+        print(f"[INIT] Created single cell {cell.id} at center ({cx},{cy},{cz}) vol={cell.volume:.1f} targetVol={cell.targetVolume:.1f} V_div={cell.dict['V_div']:.1f}")
+
+        # Ensure only one cell
+        for other_cell in list(self.cell_list):
+            if other_cell.id != cell.id:
+                try:
+                    self.delete_cell(other_cell)
+                    print(f"[INIT] Removed extra cell {other_cell.id}")
+                except Exception:
+                    pass
+        print(f"[INIT] Final cell count: {len(self.cell_list)}")
 
 
+# ------------------------- OXYGEN-DRIVEN FATE & GROWTH ---------------------------- #
 class O2DrivenFateSteppable(SteppableBasePy):
     def step(self, mcs):
-        """Handle cell fate transitions and growth based on oxygen levels."""
-        oxygen_field = self.field.Oxygen
-        
-        # Early safety re-initialization of oxygen if central value too low
-        early_window = int(P('OutputFrequency') * P('EarlyO2CheckWindowFactor'))
-        if mcs < early_window:
-            cx, cy, cz = self.dim.x // 2, self.dim.y // 2, self.dim.z // 2
-            center_o2 = float(oxygen_field[cx, cy, cz])
-            if center_o2 < P('O2_Reset_Threshold'):
-                oxygen_field[:, :, :] = 1.0
-                print(f"[MCS {mcs}] Oxygen field reset (center={center_o2:.3f})")
-        
+        oxy = self.field.Oxygen
         for cell in self.cell_list:
-            if cell.type == 0:  # skip medium
+            if cell.type == 0:  # Medium
                 continue
-            
-            # Process necrotic cells (shrinkage and removal)
             if cell.type == self.NECROTIC:
-                self._process_necrotic_cell(cell)
+                self._process_necrotic(cell)
                 continue
-            
-            x = max(0, min(int(round(cell.xCOM)), self.dim.x - 1))
-            y = max(0, min(int(round(cell.yCOM)), self.dim.y - 1))
-            z = max(0, min(int(round(cell.zCOM)), self.dim.z - 1))
-            o2_level = float(oxygen_field[x, y, z])
-            
-            # State transitions
+
+            # Sample oxygen at COM safely
+            x = min(max(int(round(cell.xCOM)), 0), self.dim.x - 1)
+            y = min(max(int(round(cell.yCOM)), 0), self.dim.y - 1)
+            z = min(max(int(round(cell.zCOM)), 0), self.dim.z - 1)
+            o2 = float(oxy[x, y, z])
+
             if cell.type == self.NORMOXIC:
-                if o2_level < P('O2_Thresh_Necrotic'):
-                    self._to_necrotic(cell)
-                    continue
-                elif o2_level < P('O2_Thresh_Hypoxic'):
+                if o2 < P('O2_Thresh_Necrotic'):
+                    self._to_necrotic(cell); continue
+                elif o2 < P('O2_Thresh_Hypoxic'):
                     self._to_hypoxic(cell)
             elif cell.type == self.HYPOXIC:
-                if o2_level > P('O2_Thresh_Normoxic'):
+                if o2 > P('O2_Thresh_Normoxic'):
                     self._to_normoxic(cell)
-                elif o2_level < P('O2_Thresh_Necrotic'):
-                    self._to_necrotic(cell)
-                    continue
-            
-            # Growth
-            self._grow(cell, o2_level)
-    
+                elif o2 < P('O2_Thresh_Necrotic'):
+                    self._to_necrotic(cell); continue
+
+            self._grow(cell)
+
     def _to_normoxic(self, cell):
         cell.type = self.NORMOXIC
-        cell.lambdaVolume = P('SeedLambdaVolume')
-        cell.lambdaSurface = P('SeedLambdaSurface')
-        cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
-    
+
     def _to_hypoxic(self, cell):
         cell.type = self.HYPOXIC
-        cell.lambdaVolume = P('SeedLambdaVolume')
-        cell.lambdaSurface = P('SeedLambdaSurface')
-        cell.targetVolume = max(P('TV_Min'), cell.targetVolume * P('HypoxicVolumeReduceFactor'))
-        cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
-    
+
     def _to_necrotic(self, cell):
         cell.type = self.NECROTIC
-        # Extremely high lambda values freeze necrotic cells in place (no movement)
-        cell.lambdaVolume = P('NecroticFreezeLambda')
-        cell.lambdaSurface = P('NecroticFreezeLambda')
-        cell.targetVolume = cell.volume
-        cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
-        
-        # Mark when cell became necrotic for lifetime tracking
-        cell.dict["necrotic_mcs"] = self.mcs
-        print(f"Cell {cell.id} became necrotic at MCS {self.mcs}, volume {cell.volume:.1f}")
-    
-    def _grow(self, cell, o2_level: float):
-        if cell.type == self.NECROTIC:
+        cell.targetVolume = cell.volume  # freeze current size
+        cell.dict['necrotic_mcs'] = self.mcs
+        print(f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}")
+
+    def _grow(self, cell):
+        # Simple growth like in CC3D examples - just increment targetVolume directly
+        if cell.type in (self.NORMOXIC, self.HYPOXIC):
+            rate = P('GrowthRateNormoxic') if cell.type == self.NORMOXIC else P('GrowthRateHypoxic')
+            if rate <= 0:
+                return
+            old = cell.targetVolume
+            cell.targetVolume += rate
+            # Keep a reasonable cap so target doesn't run away far beyond division threshold
+            if 'V_div' in cell.dict:
+                cell.targetVolume = min(cell.targetVolume, cell.dict['V_div'])
+            if self.mcs % int(P('OutputFrequency')) == 0:
+                print(f"[GROW] MCS {self.mcs} cell {cell.id} type={cell.type} vol={cell.volume:.1f} targetVol {old:.1f}->{cell.targetVolume:.1f} V_div={cell.dict.get('V_div','n/a')}")
+
+    def _process_necrotic(self, cell):
+        if 'necrotic_mcs' not in cell.dict:
+            cell.dict['necrotic_mcs'] = self.mcs
+        age = self.mcs - cell.dict['necrotic_mcs']
+        if age >= P('NecroticLifetime'):
+            self._safe_delete(cell)
             return
-        
-        if cell.type == self.NORMOXIC and o2_level > P('O2_Thresh_Hypoxic'):
-            dv = P('GrowthRateNormoxic') * P('GrowthBoostNormoxic')
-            cell.targetVolume = min(P('TV_Max'), cell.targetVolume + dv)
-        elif cell.type == self.HYPOXIC and o2_level > P('O2_Thresh_Necrotic'):
-            dv = P('GrowthRateHypoxic') * P('GrowthBoostHypoxic')
-            max_vol = P('TV_Max') * P('HypoxicMaxVolumeFrac')
-            cell.targetVolume = min(max_vol, cell.targetVolume + dv)
-        
-        # Forced mild growth for all living cells
-        if cell.type != self.NECROTIC:
-            cell.targetVolume = min(P('TV_Max'), cell.targetVolume + P('ForcedGrowthIncrement'))
-        
-        cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
-    
-    def _process_necrotic_cell(self, cell):
-        """Handle necrotic cell shrinkage and eventual removal."""
-        # Get when cell became necrotic
-        if "necrotic_mcs" not in cell.dict:
-            cell.dict["necrotic_mcs"] = self.mcs  # Fallback for existing necrotic cells
-        
-        necrotic_age = self.mcs - cell.dict["necrotic_mcs"]
-        
-        # Check if cell should be removed (age or minimum volume)
-        if (necrotic_age >= P('NecroticLifetime') or 
-            cell.volume <= P('NecroticMinVolume')):
-            print(f"Removing necrotic cell {cell.id} at MCS {self.mcs} "
-                  f"(age: {necrotic_age}, volume: {cell.volume:.1f})")
-            self._safe_delete_cell(cell)
-            return
-        
-        # Shrink the cell by reducing target volume
-        shrinkage = P('NecroticShrinkageRate')
-        new_target = max(P('NecroticMinVolume'), cell.targetVolume - shrinkage)
-        
-        if new_target != cell.targetVolume:
-            cell.targetVolume = new_target
-            cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
-            
-            # Keep extremely high lambda values to prevent movement
-            cell.lambdaVolume = P('NecroticFreezeLambda')
-            cell.lambdaSurface = P('NecroticFreezeLambda')
-    
-    def _safe_delete_cell(self, cell):
-        """Safely delete a cell with fallback methods."""
+        shrink = P('NecroticShrinkageRate')
+        if shrink > 0:
+            cell.targetVolume = max(0, cell.targetVolume - shrink)
+
+    def _safe_delete(self, cell):
         try:
-            # Try standard deletion with PixelTracker
             self.delete_cell(cell)
-        except (AttributeError, TypeError) as e:
-            print(f"PixelTracker deletion failed: {e}")
-            # Fallback: convert to medium by making it disappear gradually
-            try:
-                # Set cell type to medium (effectively removes it)
-                cell.type = 0  # Medium type
-                cell.targetVolume = 0
-                cell.targetSurface = 0
-                cell.lambdaVolume = 1000.0  # High constraint to force shrinking
-                print(f"Cell {cell.id} converted to medium type (fallback removal)")
-            except Exception as e2:
-                print(f"Fallback removal also failed: {e2}")
+            print(f"[DELETE] Necrotic cell {cell.id} removed after lifetime")
+        except Exception as e:
+            print(f"[ERROR] Failed to delete cell {cell.id}: {e}")
 
 
+# ------------------------- MITOSIS ---------------------------- #
 class O2MitosisSteppable(MitosisSteppableBase):
     def __init__(self, frequency=1):
         super().__init__(frequency)
         self.set_parent_child_position_flag(0)
-    
+
     def step(self, mcs):
-        """Division with initial delay so only one cell exists early on."""
-        if mcs < P('EarliestDivisionMCS'):
-            return
-        
-        try:
-            oxygen_field = self.field.Oxygen
-            cells_to_divide = []
-            
-            for cell in self.cell_list:
-                if cell.type == self.NECROTIC or cell.type == 0:
-                    continue
-                
-                if cell.volume > P('DivisionVolume'):
-                    x = max(0, min(int(round(cell.xCOM)), self.dim.x - 1))
-                    y = max(0, min(int(round(cell.yCOM)), self.dim.y - 1))
-                    z = max(0, min(int(round(cell.zCOM)), self.dim.z - 1))
-                    o2_level = float(oxygen_field[x, y, z])
-                    
-                    div_prob = 0.0
-                    if cell.type == self.NORMOXIC:
-                        if o2_level > P('DivO2High'):
-                            div_prob = P('DivProbHighO2')
-                        elif o2_level > P('DivO2Med'):
-                            div_prob = P('DivProbMedO2')
-                        elif o2_level > P('DivO2Lower'):
-                            div_prob = P('DivProbMedO2') * P('DivMedScale1')
-                        elif o2_level > P('DivO2LowEdge'):
-                            div_prob = P('DivProbMedO2') * P('DivMedScale2')
-                    elif cell.type == self.HYPOXIC and o2_level > P('DivHypoxicMin'):
-                        div_prob = P('DivProbLowO2') * P('DivHypoxicScale')
-                    
-                    if random.random() < div_prob:
-                        cells_to_divide.append(cell)
-            
-            for cell in cells_to_divide:
-                self.divide_cell_random_orientation(cell)
-            
-            # Post-division forced growth
-            for cell in self.cell_list:
-                if cell.type != 0 and cell.type != self.NECROTIC:
-                    inc = P('GrowthRateNormoxic') * P('PostDivisionGrowthFactor')
-                    cell.targetVolume = min(cell.targetVolume + inc, P('TV_Max'))
-                    cell.targetSurface = spherical_surface_from_volume(cell.targetVolume)
-        
-        except Exception as e:
-            print(f"[ERROR MCS {mcs}] O2MitosisSteppable: {e}")
-            pass
-    
+        # Divide when actual volume reaches a persistent per-cell threshold
+        for cell in self.cell_list:
+            if cell.type in (0, self.NECROTIC):
+                continue
+            v_div = cell.dict.get('V_div', None)
+            if v_div is None:
+                # Initialize if missing (e.g., cells loaded from old state)
+                cell.dict['V_div'] = max(2.0 * max(cell.targetVolume, 1.0), cell.volume + 30.0)
+                v_div = cell.dict['V_div']
+            if cell.volume >= v_div:
+                prob = P('DivProbNormoxic') if cell.type == self.NORMOXIC else P('DivProbHypoxic')
+                if random.random() < prob:
+                    print(f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f} V_div={v_div:.1f}")
+                    self.divide_cell_random_orientation(cell)
+
     def update_attributes(self):
-        """Update parent and child cell attributes after division."""
-        # Split volume equally
-        self.parent_cell.targetVolume *= 0.5
+        # After division, split targets and set a new division threshold for each daughter
+        # First, clone parent's attributes to child so both share phenotype and CC3D state
         self.clone_parent_2_child()
-        self.child_cell.targetVolume = self.parent_cell.targetVolume
-        
-        # Update spherical surfaces for both daughter cells
-        self.parent_cell.targetSurface = spherical_surface_from_volume(self.parent_cell.targetVolume)
-        self.child_cell.targetSurface = spherical_surface_from_volume(self.child_cell.targetVolume)
-        self.parent_cell.lambdaSurface = P('SeedLambdaSurface')
-        self.child_cell.lambdaSurface = P('SeedLambdaSurface')
-        
-        # Ensure both cells have same type
+        # Halve target volumes so each daughter will grow again
+        self.parent_cell.targetVolume = max(1.0, self.parent_cell.volume)
+        self.child_cell.targetVolume = max(1.0, self.child_cell.volume)
+        # Keep the same phenotype
         self.child_cell.type = self.parent_cell.type
+        # Set new division thresholds for both daughters
+        self.parent_cell.dict['V_div'] = max(2.0 * self.parent_cell.targetVolume, self.parent_cell.volume + 30.0)
+        self.child_cell.dict['V_div'] = max(2.0 * self.child_cell.targetVolume, self.child_cell.volume + 30.0)
+        print(f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} targets=({self.parent_cell.targetVolume:.1f},{self.child_cell.targetVolume:.1f}) next V_div=({self.parent_cell.dict['V_div']:.1f},{self.child_cell.dict['V_div']:.1f})")
 
 
+# ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
 class LightAnalysisSteppable(SteppableBasePy):
-    def step(self, mcs):
-        """Analyze and report simulation progress."""
-        if mcs % P('OutputFrequency') != 0:
-            return
-        
-        try:
-            # Count cells by type
-            cell_counts = {'Normoxic': 0, 'Hypoxic': 0, 'Necrotic': 0}
-            total_volume = 0
-            center_x, center_y, center_z = self.dim.x // 2, self.dim.y // 2, self.dim.z // 2
-            
-            for cell in self.cell_list:
-                total_volume += cell.volume
-                if cell.type == self.NORMOXIC:
-                    cell_counts['Normoxic'] += 1
-                elif cell.type == self.HYPOXIC:
-                    cell_counts['Hypoxic'] += 1
-                elif cell.type == self.NECROTIC:
-                    cell_counts['Necrotic'] += 1
-            
-            # Get oxygen levels at different distances from center
-            oxygen_field = self.field.Oxygen
-            o2_center = oxygen_field[center_x, center_y, center_z]
-            
-            # Sample oxygen at different radii
-            r1 = int(min(P('AnalysisRadius1'), self.dim.x // 2))
-            r2 = int(min(P('AnalysisRadius2'), self.dim.x // 2))
-            
-            o2_r1 = oxygen_field[min(center_x + r1, self.dim.x - 1), center_y, center_z]
-            o2_r2 = oxygen_field[min(center_x + r2, self.dim.x - 1), center_y, center_z]
-            
-            print(f"[MCS {mcs:5d}] Cells: N={cell_counts['Normoxic']:3d} H={cell_counts['Hypoxic']:3d} "
-                  f"D={cell_counts['Necrotic']:3d} | TotalVol={total_volume:6.0f} | "
-                  f"O2: center={o2_center:.3f} r={r1}:{o2_r1:.3f} r={r2}:{o2_r2:.3f}")
-            
-            # Calculate spheroid radius (approximate)
-            if len(self.cell_list) > 0:
-                max_dist = 0
-                for cell in self.cell_list:
-                    dist = math.sqrt((cell.xCOM - center_x)**2 +
-                                   (cell.yCOM - center_y)**2 +
-                                   (cell.zCOM - center_z)**2)
-                    max_dist = max(max_dist, dist)
-                
-                if mcs % (P('OutputFrequency') * 4) == 0:
-                    print(f"     Spheroid radius ~ {max_dist:.1f} voxels")
-        
-        except Exception as e:
-            print(f"[ERROR MCS {mcs}] LightAnalysisSteppable: {e}")
-            pass
-
-
-class VisualizationSteppable(SteppableBasePy):
-    """Configure visualization settings for spherical cell display."""
-    
     def start(self):
-        """Set up visualization preferences."""
-        print("Visualization: Using CompuCell3D default cell rendering")
-        print("Note: Cells will appear with spherical constraints from Surface plugin")
-    
-    def step(self, mcs):
-        # Do nothing - visualization is handled by CompuCell3D's default renderer
-        pass
+        self.plot_total = self.add_new_plot_window(title='Total Volume', x_axis_title='MCS', y_axis_title='Volume',
+                                                   x_scale_type='linear', y_scale_type='linear', grid=True)
+        self.plot_total.add_plot("Volume", style='Lines', color='blue', size=2)
+        self.plot_counts = self.add_new_plot_window(title='Cell Counts', x_axis_title='MCS', y_axis_title='Count',
+                                                    x_scale_type='linear', y_scale_type='linear', grid=True)
+        for name, color in (('Normoxic','green'), ('Hypoxic','orange'), ('Necrotic','red')):
+            self.plot_counts.add_plot(name, style='Lines', color=color, size=2)
 
-
-class ActivityForcerSteppable(SteppableBasePy):
-    """Force continuous activity to prevent simulation from pausing."""
-    
-    def __init__(self):
-        super().__init__(frequency=int(P('ActivityFrequency')))
-        self.last_cell_count = 0
-    
     def step(self, mcs):
-        """Force activity by slightly perturbing cell properties."""
-        try:
-            current_cell_count = len(self.cell_list)
-            
-            # If cell count hasn't changed much, force some activity
-            threshold = P('ActivityStableDeltaThreshold')
-            if abs(current_cell_count - self.last_cell_count) < threshold:
-                for cell in self.cell_list:
-                    if cell.type != 0:  # Skip medium
-                        # Slightly perturb target volume to force movement
-                        perturbation = P('ActivityPerturbation') * (random.random() - 0.5)
-                        cell.targetVolume += perturbation
-                        # Keep within reasonable bounds
-                        cell.targetVolume = max(P('TV_Min'), min(cell.targetVolume, P('TV_Max')))
-            
-            self.last_cell_count = current_cell_count
-            
-            # Print activity status
-            if mcs % (P('OutputFrequency') * 2) == 0:
-                print(f"[ACTIVITY] MCS {mcs}: activity enforcement check")
+        if mcs % int(P('OutputFrequency')) != 0:
+            return
+        counts = {'Normoxic':0,'Hypoxic':0,'Necrotic':0}
+        total_vol = 0
+        for cell in self.cell_list:
+            total_vol += cell.volume
+            if cell.type == self.NORMOXIC: counts['Normoxic'] += 1
+            elif cell.type == self.HYPOXIC: counts['Hypoxic'] += 1
+            elif cell.type == self.NECROTIC: counts['Necrotic'] += 1
+        self.plot_total.add_data_point('Volume', mcs, total_vol)
+        for k in counts:
+            self.plot_counts.add_data_point(k, mcs, counts[k])
         
-        except Exception as e:
-            print(f"[ERROR MCS {mcs}] ActivityForcerSteppable: {e}")
-            pass
+        # Debug info every 10*OutputFrequency
+        if mcs % (int(P('OutputFrequency')) * 10) == 0:
+            print(f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}")
+            # Show individual cell details
+            for cell in self.cell_list:
+                print(f"  Cell {cell.id}: type={cell.type} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
+
