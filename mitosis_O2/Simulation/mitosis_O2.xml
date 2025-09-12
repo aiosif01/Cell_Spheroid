@@ -119,7 +119,10 @@
     <!-- Necrotic Cell Behavior -->
     <Param Name="NecroticShrinkageRate" Value="0.1" Desc="Volume reduction rate per MCS for necrotic cells"/>
     <Param Name="NecroticLifetime" Value="95" Desc="Maximum MCS a necrotic cell exists"/>
-    
+
+    <!-- Force pushing cells toward center to fill gaps -->
+    <Param Name="CenterPushStrength" Value="0.05" Desc="Inward force magnitude for living cells"/>
+
     <!-- Analysis -->
     <Param Name="OutputFrequency" Value="10" Desc="Analysis and log frequency (MCS)"/>
 

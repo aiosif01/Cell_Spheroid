@@ -1,11 +1,12 @@
 from cc3d import CompuCellSetup
 
 from mitosis_O2Steppables import (
-	OxygenInitSteppable,
-	SingleCellInitSteppable,
-	O2DrivenFateSteppable,
-	O2MitosisSteppable,
-	LightAnalysisSteppable
+        OxygenInitSteppable,
+        SingleCellInitSteppable,
+        O2DrivenFateSteppable,
+        O2MitosisSteppable,
+        CenterCompactionSteppable,
+        LightAnalysisSteppable
 )
 
 # All steppables now get frequencies from XML parameters internally
@@ -15,6 +16,8 @@ CompuCellSetup.register_steppable(SingleCellInitSteppable(frequency=1))
 # Core simulation steppables run every step (frequency=1)
 CompuCellSetup.register_steppable(O2DrivenFateSteppable(frequency=1))
 CompuCellSetup.register_steppable(O2MitosisSteppable(frequency=1))
+# Push cells toward center to close gaps
+CompuCellSetup.register_steppable(CenterCompactionSteppable(frequency=1))
 # Analysis steppable uses internal XML-controlled frequency
 CompuCellSetup.register_steppable(LightAnalysisSteppable(frequency=1))
 
