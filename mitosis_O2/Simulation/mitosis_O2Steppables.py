@@ -2,6 +2,13 @@ from cc3d.core.PySteppables import *
 import random, os, math
 from xml.dom import minidom
 
+# Pre-computed constant for spherical surface calculations
+SPHERE_SURF_COEFF = (36.0 * math.pi) ** (1.0 / 3.0)
+
+def surface_from_volume(vol: float) -> float:
+    """Return spherical surface estimate for a given volume."""
+    return SPHERE_SURF_COEFF * (vol ** (2.0 / 3.0))
+
 # ------------------------- PARAMETER HANDLING ---------------------------- #
 def _load_user_parameters(xml_filename: str) -> dict:
     """Parses <UserParameters><Param Name= Value= /></UserParameters> into a dict."""
@@ -46,7 +53,7 @@ class OxygenInitSteppable(SteppableBasePy):
 # ------------------------- SINGLE CELL INITIALIZATION ---------------------------- #
 class SingleCellInitSteppable(SteppableBasePy):
     def start(self):
-        # Create exactly one cell at center - simple approach like CC3D examples
+        # Create exactly one cell at center
         cx, cy, cz = self.dim.x // 2, self.dim.y // 2, self.dim.z // 2
         initial_radius = P('InitialCellRadius')
         cell = self.new_cell(self.NORMOXIC)
@@ -60,17 +67,14 @@ class SingleCellInitSteppable(SteppableBasePy):
                         if (x-cx)**2 + (y-cy)**2 + (z-cz)**2 <= initial_radius*initial_radius:
                             self.cell_field[x, y, z] = cell
 
-        # Set per-type lambdas under Python control
+        # Set per-type lambdas
         cell.lambdaVolume = P('LambdaVolumeNormoxic')
         cell.lambdaSurface = P('LambdaSurfaceNormoxic')
 
-        # Simple initialization - set targets to current measured values to avoid XML defaults
-        cell.targetVolume = cell.volume
-        try:
-            cell.targetSurface = cell.surface
-        except Exception:
-            # Fallback to spherical estimate if surface not available
-            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+        # Calculate initial volume from radius directly: V = (4/3)πr³
+        initial_volume = (4.0/3.0) * math.pi * (initial_radius ** 3)
+        cell.targetVolume = initial_volume
+        cell.targetSurface = surface_from_volume(initial_volume)
         print(f"[INIT] Created single cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
 
         # Ensure only one cell
@@ -101,16 +105,20 @@ class O2DrivenFateSteppable(SteppableBasePy):
             z = min(max(int(round(cell.zCOM)), 0), self.dim.z - 1)
             o2 = float(oxy[x, y, z])
 
-            # FIELD-DRIVEN PHENOTYPE CHANGES (this is what you want to keep!)
+            # FIELD-DRIVEN PHENOTYPE CHANGES - Two-Threshold System
             if cell.type == self.NORMOXIC:
-                if o2 < P('O2_Thresh_Necrotic'):
+                if o2 < P('O2_Thresh_HypoxicNecrotic'):
                     self._to_necrotic(cell); continue
-                elif o2 < P('O2_Thresh_Hypoxic'):
+                elif o2 < P('O2_Thresh_NormoxicHypoxic'):
                     self._to_hypoxic(cell)
+                    if mcs % int(P('OutputFrequency')) == 0:
+                        print(f"[FATE] Cell {cell.id} NORMOXIC->HYPOXIC at O2={o2:.3f}")
             elif cell.type == self.HYPOXIC:
-                if o2 > P('O2_Thresh_Normoxic'):
+                if o2 >= P('O2_Thresh_NormoxicHypoxic'):
                     self._to_normoxic(cell)
-                elif o2 < P('O2_Thresh_Necrotic'):
+                    if mcs % int(P('OutputFrequency')) == 0:
+                        print(f"[FATE] Cell {cell.id} HYPOXIC->NORMOXIC at O2={o2:.3f}")
+                elif o2 < P('O2_Thresh_HypoxicNecrotic'):
                     self._to_necrotic(cell); continue
 
             self._grow(cell)
@@ -125,7 +133,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
         # Keep previous target volume (do not reset to current volume)
         cell.targetVolume = prev_tv
         # Keep surface coherent with target volume
-        cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+        cell.targetSurface = surface_from_volume(cell.targetVolume)
 
     def _to_hypoxic(self, cell):
         prev_tv = getattr(cell, 'targetVolume', cell.volume)
@@ -134,38 +142,44 @@ class O2DrivenFateSteppable(SteppableBasePy):
         cell.lambdaSurface = P('LambdaSurfaceHypoxic')
         # Keep previous target volume (do not reset to current volume)
         cell.targetVolume = prev_tv
-        # Keep surface coherent with target volume
-        cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+        # For hypoxic cells, don't use mathematical surface equations - keep current surface
+        try:
+            cell.targetSurface = cell.surface
+        except Exception:
+            pass  # Keep whatever surface value was there
 
     def _to_necrotic(self, cell):
         cell.type = self.NECROTIC
         # Assign per-type lambdas under Python control
         cell.lambdaVolume = P('LambdaVolumeNecrotic')
         cell.lambdaSurface = P('LambdaSurfaceNecrotic')
-        # Freeze volume when becoming necrotic
+        # Freeze volume when becoming necrotic - NO mathematical formulas
         cell.targetVolume = cell.volume
+        # Keep current surface, no mathematical calculations for necrotic cells
         try:
             cell.targetSurface = cell.surface
         except Exception:
-            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+            pass  # Don't calculate surface for necrotic cells
         cell.dict['necrotic_mcs'] = self.mcs
         print(f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}")
 
     def _grow(self, cell):
-        # Absolute control over target volume/surface
-        if cell.type in (self.NORMOXIC, self.HYPOXIC):
-            growth_rate = P('GrowthRateNormoxic') if cell.type == self.NORMOXIC else P('GrowthRateHypoxic')
+        # Growth only for normoxic cells - use mathematical surface formula only for growing cells
+        if cell.type == self.NORMOXIC:
+            growth_rate = P('GrowthRateNormoxic')
 
             if growth_rate <= 0:
                 # Keep previous targets unchanged to maintain a stable volume constraint
-                # Update surface to remain consistent with the current target volume
-                cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+                # Update surface to remain consistent with the current target volume for normoxic only
+                cell.targetSurface = surface_from_volume(cell.targetVolume)
                 return
 
             # Accumulate target volume growth deterministically
             old_tv = cell.targetVolume
+            old_ts = cell.targetSurface
             cell.targetVolume = old_tv + growth_rate
-            cell.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (cell.targetVolume ** (2.0 / 3.0))
+            # Linearized update for surface: dS ≈ (2/3)*(S/V)*dV
+            cell.targetSurface = old_ts + (2.0 / 3.0) * (old_ts / old_tv) * growth_rate
 
             if self.mcs % int(P('OutputFrequency')) == 0:
                 print(
@@ -173,45 +187,30 @@ class O2DrivenFateSteppable(SteppableBasePy):
                     f"vol={cell.volume:.1f} targetVol {old_tv:.1f}->{cell.targetVolume:.1f} "
                     f"targetSurf->{cell.targetSurface:.1f}"
                 )
+        
+        elif cell.type == self.HYPOXIC:
+            # Hypoxic cells don't grow but keep their current volume/surface targets
+            # No mathematical surface calculations for hypoxic cells
+            pass
 
     def _process_necrotic(self, cell):
         if 'necrotic_mcs' not in cell.dict:
             cell.dict['necrotic_mcs'] = self.mcs
-        
         age = self.mcs - cell.dict['necrotic_mcs']
-        
-        if age >= int(P('NecroticLifetime')):
-            try:
-                # Force cell to shrink to zero before deletion
-                cell.targetVolume = 1
-                cell.lambdaVolume = 100.0  # Very strong constraint
-                # Try deletion
-                self.delete_cell(cell)
-                print(f"[DELETE-SUCCESS] Cell {cell.id} removed after {age} MCS")
-                return
-            except Exception as e:
-                # If deletion fails, just make it invisible by shrinking
-                cell.targetVolume = 1
-                cell.lambdaVolume = 100.0
-                print(f"[DELETE-FALLBACK] Cell {cell.id} shrunk to near-zero, age={age}")
-                return
-        
-        # Normal shrinkage
-        shrink_rate = P('NecroticShrinkageRate')
-        if shrink_rate > 0:
-            old_target = cell.targetVolume
-            cell.targetVolume = max(0.1, cell.targetVolume - shrink_rate)
-            
-            # Debug shrinkage
-            if age % 10 == 0:
-                print(f"[SHRINK] Cell {cell.id} age={age} target: {old_target:.1f}->{cell.targetVolume:.1f} actual={cell.volume:.1f}")
+        lifetime_limit = int(P('NecroticLifetime'))
 
-    def _safe_delete(self, cell):
-        try:
-            self.delete_cell(cell)
-            print(f"[DELETE] Necrotic cell {cell.id} removed after lifetime")
-        except Exception as e:
-            print(f"[ERROR] Failed to delete cell {cell.id}: {e}")
+        if age >= lifetime_limit:
+            if random.random() < 0.75:
+                self.delete_cell(cell)
+                return
+            else:
+                cell.dict['necrotic_mcs'] = self.mcs
+                return
+
+        reduction_ratio = P('NecroticShrinkageRate')
+        if reduction_ratio > 0:
+            cell.lambdaVolume = P('LambdaVolumeNecrotic')
+            cell.targetVolume = max(1, int(cell.volume * (1.0 - reduction_ratio)))
 
 
 # ------------------------- MITOSIS ---------------------------- #
@@ -221,20 +220,20 @@ class O2MitosisSteppable(MitosisSteppableBase):
         self.set_parent_child_position_flag(0)
 
     def step(self, mcs):
-        # Simple volume-based division like CC3D examples
+        # Division when target volume reaches final target volume
         cells_to_divide = []
+        final_target_volume = P('FinalTargetVolume')
+        
         for cell in self.cell_list:
             if cell.type in (0, self.NECROTIC):
                 continue
-            # Do not allow division if growth is disabled for this phenotype
-            if (cell.type == self.NORMOXIC and P('GrowthRateNormoxic') <= 0) or \
-               (cell.type == self.HYPOXIC and P('GrowthRateHypoxic') <= 0):
-                continue
-            # Simple rule: divide when volume > 2x initial volume
-            if cell.volume > P('DivisionVolumeThreshold'):
-                prob = P('DivProbNormoxic') if cell.type == self.NORMOXIC else P('DivProbHypoxic')
-                if random.random() < prob:
-                    cells_to_divide.append(cell)
+            # Only normoxic cells divide (hypoxic growth rate is 0)
+            if cell.type == self.NORMOXIC and P('GrowthRateNormoxic') > 0:
+                # Divide when target volume reaches final target volume
+                if cell.targetVolume >= final_target_volume:
+                    prob = P('DivProbNormoxic')
+                    if random.random() < prob:
+                        cells_to_divide.append(cell)
 
         for cell in cells_to_divide:
             print(f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
@@ -246,14 +245,58 @@ class O2MitosisSteppable(MitosisSteppableBase):
         self.clone_parent_2_child()
         self.child_cell.type = self.parent_cell.type
 
-        # Recompute target surfaces. Do not reset targets to current volume even if growth is zero.
+        # Recompute target surfaces using spherical estimate (cheap)
         for c in (self.parent_cell, self.child_cell):
-            c.targetSurface = (36.0 * math.pi) ** (1.0 / 3.0) * (c.targetVolume ** (2.0 / 3.0))
+            c.targetSurface = surface_from_volume(c.targetVolume)
 
         print(
             f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} "
             f"parentTV={self.parent_cell.targetVolume:.1f} childTV={self.child_cell.targetVolume:.1f}"
         )
+
+# ------------------------- CENTRAL COMPACTION ---------------------------- #
+class CenterCompactionSteppable(SteppableBasePy):
+    """Applies a polar radial force to ALL cell types for spherical compaction toward center."""
+
+    def step(self, mcs):
+        cx, cy, cz = self.dim.x / 2.0, self.dim.y / 2.0, self.dim.z / 2.0
+        strength = P('CenterPushStrength')
+        
+        for cell in self.cell_list:
+            # Skip Medium cells (type 0) but compact all living and necrotic cells
+            if cell.type == 0:  # Medium
+                continue
+                
+            # Calculate radial distance vector from cell to center
+            dx = cx - cell.xCOM
+            dy = cy - cell.yCOM
+            dz = cz - cell.zCOM
+            
+            # Calculate radial distance
+            r = math.sqrt(dx*dx + dy*dy + dz*dz)
+            
+            # Avoid division by zero for cells exactly at center
+            if r < 1e-6:
+                cell.lambdaVecX = 0.0
+                cell.lambdaVecY = 0.0
+                cell.lambdaVecZ = 0.0
+                continue
+            
+            # Make force stronger and distance-dependent to overcome contact energies
+            # Use quadratic scaling: farther cells get stronger inward force
+            force_magnitude = strength * r * r * 0.1  # Scale factor to prevent excessive force
+            
+            # Normalize direction vector and apply radial force
+            cell.lambdaVecX = force_magnitude * (dx / r)
+            cell.lambdaVecY = force_magnitude * (dy / r)
+            cell.lambdaVecZ = force_magnitude * (dz / r)
+            
+            # Debug output every 50 MCS for a few cells
+            if mcs % 50 == 0 and cell.id <= 3:
+                print(f"[COMPACT] MCS={mcs} Cell={cell.id} r={r:.1f} force_mag={force_magnitude:.2f} "
+                      f"lambdaVec=({cell.lambdaVecX:.2f},{cell.lambdaVecY:.2f},{cell.lambdaVecZ:.2f})")
+
+
 
 
 # ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
@@ -272,14 +315,34 @@ class LightAnalysisSteppable(SteppableBasePy):
             return
         counts = {'Normoxic':0,'Hypoxic':0,'Necrotic':0}
         total_vol = 0
+        o2_samples = []  # Track oxygen levels
+        
         for cell in self.cell_list:
             total_vol += cell.volume
-            if cell.type == self.NORMOXIC: counts['Normoxic'] += 1
-            elif cell.type == self.HYPOXIC: counts['Hypoxic'] += 1
-            elif cell.type == self.NECROTIC: counts['Necrotic'] += 1
+            if cell.type == self.NORMOXIC:
+                counts['Normoxic'] += 1
+            elif cell.type == self.HYPOXIC:
+                counts['Hypoxic'] += 1
+            elif cell.type == self.NECROTIC:
+                counts['Necrotic'] += 1
+
+            # Sample oxygen at cell location for monitoring
+            if cell.type != 0:  # Not medium
+                x = min(max(int(round(cell.xCOM)), 0), self.dim.x - 1)
+                y = min(max(int(round(cell.yCOM)), 0), self.dim.y - 1)
+                z = min(max(int(round(cell.zCOM)), 0), self.dim.z - 1)
+                o2 = float(self.field.Oxygen[x, y, z])
+                o2_samples.append(o2)
+                
         self.plot_total.add_data_point('Volume', mcs, total_vol)
         for k in counts:
             self.plot_counts.add_data_point(k, mcs, counts[k])
+        
+        # Oxygen monitoring
+        if o2_samples:
+            o2_min, o2_max, o2_avg = min(o2_samples), max(o2_samples), sum(o2_samples)/len(o2_samples)
+            print(f"[O2-MONITOR] MCS {mcs} O2: min={o2_min:.3f} avg={o2_avg:.3f} max={o2_max:.3f} | "
+                  f"Thresholds: N/H={P('O2_Thresh_NormoxicHypoxic'):.3f} H/Nec={P('O2_Thresh_HypoxicNecrotic'):.3f}")
         
         # Simple debug info
         if mcs % (int(P('OutputFrequency')) * 2) == 0:

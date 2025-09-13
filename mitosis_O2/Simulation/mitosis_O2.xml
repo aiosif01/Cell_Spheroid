@@ -3,8 +3,8 @@
   <Potts>
     <Dimensions x="100" y="100" z="100"/>
     <Steps>10000</Steps>
-    <Temperature>35</Temperature>  <!-- From 25 to 35 for more active reorganization -->
-    <NeighborOrder>4</NeighborOrder>  <!-- INCREASED for smoother spherical surfaces -->
+    <Temperature>25</Temperature>  <!-- From 25 to 35 for more active reorganization -->
+    <NeighborOrder>3</NeighborOrder>  <!-- INCREASED for smoother spherical surfaces -->
     <Boundary_x>NoFlux</Boundary_x> <!-- NoFlux boundaries for cell confinement -->
     <Boundary_y>NoFlux</Boundary_y>
     <Boundary_z>NoFlux</Boundary_z>
@@ -23,35 +23,38 @@
 
   <Plugin Name="Contact">
     <Energy Type1="Medium"   Type2="Medium">0</Energy>
-    <Energy Type1="Medium"   Type2="Normoxic">20</Energy>
-    <Energy Type1="Medium"   Type2="Hypoxic">20</Energy>
-    <Energy Type1="Medium"   Type2="Necrotic">25</Energy>
+    <Energy Type1="Medium"   Type2="Normoxic">2</Energy>
+    <Energy Type1="Medium"   Type2="Hypoxic">3</Energy>
+    <Energy Type1="Medium"   Type2="Necrotic">5</Energy>
 
-    <Energy Type1="Normoxic" Type2="Normoxic">5</Energy>
+    <Energy Type1="Normoxic" Type2="Normoxic">2</Energy>
     <Energy Type1="Hypoxic"  Type2="Hypoxic">3</Energy>
     <Energy Type1="Necrotic" Type2="Necrotic">1</Energy>
 
-    <Energy Type1="Normoxic" Type2="Hypoxic">15</Energy>
+    <Energy Type1="Normoxic" Type2="Hypoxic">5</Energy>
     <Energy Type1="Normoxic" Type2="Necrotic">0</Energy>
-    <Energy Type1="Hypoxic"  Type2="Necrotic">10</Energy>
+    <Energy Type1="Hypoxic"  Type2="Necrotic">3</Energy>
   </Plugin>
 
   <!-- Simplified plugin set - removed unnecessary trackers -->
   <Plugin Name="NeighborTracker"/>
   <Plugin Name="CenterOfMass"/>
   <Plugin Name="PixelTracker"/>
+  <Plugin Name="ExternalPotential"/>
 
   <!-- Chemotaxis toward Oxygen field for living cells -->
   <Plugin Name="Chemotaxis">
     <ChemicalField Name="Oxygen" Source="DiffusionSolverFE">
       <ChemotaxisByType Type="Normoxic" Lambda="0.0"/>
-      <ChemotaxisByType Type="Hypoxic" Lambda="5.0"/>
+      <ChemotaxisByType Type="Hypoxic" Lambda="0.0"/>
       <!-- No chemotaxis for necrotic cells -->
     </ChemicalField>
   </Plugin>
 
   <!-- Oxygen field diffusing from boundaries to center -->
-  <Steppable Type="DiffusionSolverFE">
+  <!-- <Steppable Type="DiffusionSolverFE"> -->
+  <Steppable Type="SteadyStateDiffusionSolver">
+ 
     <DiffusionField Name="Oxygen">
       <DiffusionData>
         <FieldName>Oxygen</FieldName>
@@ -65,9 +68,9 @@
 
       <SecretionData>
         <!-- Michaelis-Menten uptake with RelativeUptakeRate -->
-        <Uptake Type="Normoxic" MaxUptake="0.01" RelativeUptakeRate="0.5" MichaelisMentenCoef="0.1"/>
-        <Uptake Type="Hypoxic"  MaxUptake="0.005" RelativeUptakeRate="0.1" MichaelisMentenCoef="0.05"/>
-        <Uptake Type="Necrotic" MaxUptake="0.0" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.0"/>
+        <Uptake Type="Normoxic" MaxUptake="0.005" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.01"/>
+        <Uptake Type="Hypoxic"  MaxUptake="0.003" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.005"/>
+        <Uptake Type="Necrotic" MaxUptake="0.000" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.00"/>
       </SecretionData>
 
       <BoundaryConditions>
@@ -90,13 +93,12 @@
 
   <!-- Streamlined parameters - essential parameters only -->
   <UserParameters>
-    <!-- Simple CC3D-style parameters -->
-    <Param Name="InitialCellRadius" Value="1.8" Desc="Radius in voxels for initial cell"/>
-    <Param Name="DivisionVolumeThreshold" Value="65" Desc="Cell divides when volume exceeds this"/>
+    <!-- Cell geometry parameters -->
+    <Param Name="InitialCellRadius" Value="1.8" Desc="Initial cell radius in voxels"/>
+    <Param Name="FinalTargetVolume" Value="65" Desc="Target volume for cell division"/>
     
     <!-- Growth Rates (volume increment per MCS) -->
     <Param Name="GrowthRateNormoxic" Value="0.95" Desc="Volume increment per MCS (normoxic cells)"/>
-    <Param Name="GrowthRateHypoxic" Value="0.0" Desc="Volume increment per MCS (hypoxic cells)"/>
 
     <!-- Per-type lambda parameters (used by steppables) -->
     <Param Name="LambdaVolumeNormoxic" Value="8.0" Desc="Volume constraint for normoxic"/>
@@ -107,19 +109,20 @@
     <Param Name="LambdaSurfaceHypoxic" Value="2.0" Desc="Surface constraint for hypoxic"/>
     <Param Name="LambdaSurfaceNecrotic" Value="1.0" Desc="Surface constraint for necrotic"/>
     
-    <!-- FIELD-DRIVEN PHENOTYPE: Oxygen Thresholds -->
-    <Param Name="O2_Thresh_Normoxic" Value="0.4" Desc="O2 above which hypoxic reverts to normoxic"/>
-    <Param Name="O2_Thresh_Hypoxic" Value="0.4" Desc="O2 below which normoxic becomes hypoxic"/>
-    <Param Name="O2_Thresh_Necrotic" Value="0.09"/>
+    <!-- FIELD-DRIVEN PHENOTYPE: Two-Threshold System -->
+    <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.4" Desc="Single threshold for normoxic/hypoxic transition"/>
+    <Param Name="O2_Thresh_HypoxicNecrotic" Value="0.1" Desc="Threshold for hypoxic to necrotic transition"/>
     
     <!-- Division Probabilities -->
     <Param Name="DivProbNormoxic" Value="1" Desc="Division probability for normoxic cells"/>
-    <Param Name="DivProbHypoxic" Value="0.0" Desc="Division probability for hypoxic cells"/>
     
     <!-- Necrotic Cell Behavior -->
-    <Param Name="NecroticShrinkageRate" Value="0.5" Desc="Volume reduction rate per MCS for necrotic cells"/>
-    <Param Name="NecroticLifetime" Value="90" Desc="Maximum MCS a necrotic cell exists"/>
+    <Param Name="NecroticShrinkageRate" Value="0.75" Desc="Volume reduction rate per MCS for necrotic cells"/>
+    <Param Name="NecroticLifetime" Value="40" Desc="Maximum MCS a necrotic cell exists"/>
     
+    <!-- Force pushing cells toward center to fill gaps -->
+    <Param Name="CenterPushStrength" Value="-10" Desc="Inward force magnitude for living cells"/>
+
     <!-- Analysis -->
     <Param Name="OutputFrequency" Value="10" Desc="Analysis and log frequency (MCS)"/>
 

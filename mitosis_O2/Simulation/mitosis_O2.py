@@ -5,6 +5,7 @@ from mitosis_O2Steppables import (
 	SingleCellInitSteppable,
 	O2DrivenFateSteppable,
 	O2MitosisSteppable,
+        CenterCompactionSteppable,
 	LightAnalysisSteppable
 )
 
@@ -14,6 +15,7 @@ CompuCellSetup.register_steppable(OxygenInitSteppable(frequency=1))
 CompuCellSetup.register_steppable(SingleCellInitSteppable(frequency=1))
 CompuCellSetup.register_steppable(O2DrivenFateSteppable(frequency=1))
 CompuCellSetup.register_steppable(O2MitosisSteppable(frequency=1))
+CompuCellSetup.register_steppable(CenterCompactionSteppable(frequency=1))
 CompuCellSetup.register_steppable(LightAnalysisSteppable(frequency=1))
 
 CompuCellSetup.run()
