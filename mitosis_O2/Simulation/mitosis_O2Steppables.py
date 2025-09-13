@@ -1,6 +1,16 @@
 from cc3d.core.PySteppables import *
 import random, os, math
 from xml.dom import minidom
+import logging
+
+# Global debug flag controlling logging verbosity
+DEBUG = False
+
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG else logging.INFO,
+    format="%(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # Pre-computed constant for spherical surface calculations
 SPHERE_SURF_COEFF = (36.0 * math.pi) ** (1.0 / 3.0)
@@ -34,7 +44,7 @@ def _load_user_parameters(xml_filename: str) -> dict:
     return params
 
 PARAMS = _load_user_parameters('mitosis_O2.xml')
-print(f"[PARAM] Loaded {len(PARAMS)} parameters from XML")
+logger.info(f"[PARAM] Loaded {len(PARAMS)} parameters from XML")
 
 def P(name: str):
     if name not in PARAMS:
@@ -47,7 +57,7 @@ class OxygenInitSteppable(SteppableBasePy):
     def start(self):
         # Ensure entire oxygen field starts at 1.0
         self.field.Oxygen[:, :, :] = 1.0
-        print(f"[OXYGEN] Initialized entire domain to concentration 1.0")
+        logger.debug("[OXYGEN] Initialized entire domain to concentration 1.0")
 
 
 # ------------------------- SINGLE CELL INITIALIZATION ---------------------------- #
@@ -75,17 +85,19 @@ class SingleCellInitSteppable(SteppableBasePy):
         initial_volume = (4.0/3.0) * math.pi * (initial_radius ** 3)
         cell.targetVolume = initial_volume
         cell.targetSurface = surface_from_volume(initial_volume)
-        print(f"[INIT] Created single cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
+        logger.info(
+            f"[INIT] Created single cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}"
+        )
 
         # Ensure only one cell
         for other_cell in list(self.cell_list):
             if other_cell.id != cell.id:
                 try:
                     self.delete_cell(other_cell)
-                    print(f"[INIT] Removed extra cell {other_cell.id}")
+                    logger.debug(f"[INIT] Removed extra cell {other_cell.id}")
                 except Exception:
                     pass
-        print(f"[INIT] Final cell count: {len(self.cell_list)}")
+        logger.info(f"[INIT] Final cell count: {len(self.cell_list)}")
 
 
 # ------------------------- OXYGEN-DRIVEN FATE & GROWTH ---------------------------- #
@@ -112,12 +124,12 @@ class O2DrivenFateSteppable(SteppableBasePy):
                 elif o2 < P('O2_Thresh_NormoxicHypoxic'):
                     self._to_hypoxic(cell)
                     if mcs % int(P('OutputFrequency')) == 0:
-                        print(f"[FATE] Cell {cell.id} NORMOXIC->HYPOXIC at O2={o2:.3f}")
+                        logger.debug(f"[FATE] Cell {cell.id} NORMOXIC->HYPOXIC at O2={o2:.3f}")
             elif cell.type == self.HYPOXIC:
                 if o2 >= P('O2_Thresh_NormoxicHypoxic'):
                     self._to_normoxic(cell)
                     if mcs % int(P('OutputFrequency')) == 0:
-                        print(f"[FATE] Cell {cell.id} HYPOXIC->NORMOXIC at O2={o2:.3f}")
+                        logger.debug(f"[FATE] Cell {cell.id} HYPOXIC->NORMOXIC at O2={o2:.3f}")
                 elif o2 < P('O2_Thresh_HypoxicNecrotic'):
                     self._to_necrotic(cell); continue
 
@@ -161,7 +173,9 @@ class O2DrivenFateSteppable(SteppableBasePy):
         except Exception:
             pass  # Don't calculate surface for necrotic cells
         cell.dict['necrotic_mcs'] = self.mcs
-        print(f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}")
+        logger.info(
+            f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}"
+        )
 
     def _grow(self, cell):
         # Growth only for normoxic cells - use mathematical surface formula only for growing cells
@@ -182,7 +196,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
             cell.targetSurface = old_ts + (2.0 / 3.0) * (old_ts / old_tv) * growth_rate
 
             if self.mcs % int(P('OutputFrequency')) == 0:
-                print(
+                logger.debug(
                     f"[GROW] MCS {self.mcs} cell {cell.id} type={cell.type} "
                     f"vol={cell.volume:.1f} targetVol {old_tv:.1f}->{cell.targetVolume:.1f} "
                     f"targetSurf->{cell.targetSurface:.1f}"
@@ -236,7 +250,10 @@ class O2MitosisSteppable(MitosisSteppableBase):
                         cells_to_divide.append(cell)
 
         for cell in cells_to_divide:
-            print(f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
+            logger.info(
+                f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} "
+                f"target={cell.targetVolume:.1f}"
+            )
             self.divide_cell_random_orientation(cell)
 
     def update_attributes(self):
@@ -249,7 +266,7 @@ class O2MitosisSteppable(MitosisSteppableBase):
         for c in (self.parent_cell, self.child_cell):
             c.targetSurface = surface_from_volume(c.targetVolume)
 
-        print(
+        logger.info(
             f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} "
             f"parentTV={self.parent_cell.targetVolume:.1f} childTV={self.child_cell.targetVolume:.1f}"
         )
@@ -293,8 +310,10 @@ class CenterCompactionSteppable(SteppableBasePy):
             
             # Debug output every 50 MCS for a few cells
             if mcs % 50 == 0 and cell.id <= 3:
-                print(f"[COMPACT] MCS={mcs} Cell={cell.id} r={r:.1f} force_mag={force_magnitude:.2f} "
-                      f"lambdaVec=({cell.lambdaVecX:.2f},{cell.lambdaVecY:.2f},{cell.lambdaVecZ:.2f})")
+                logger.debug(
+                    f"[COMPACT] MCS={mcs} Cell={cell.id} r={r:.1f} force_mag={force_magnitude:.2f} "
+                    f"lambdaVec=({cell.lambdaVecX:.2f},{cell.lambdaVecY:.2f},{cell.lambdaVecZ:.2f})"
+                )
 
 
 
@@ -341,10 +360,14 @@ class LightAnalysisSteppable(SteppableBasePy):
         # Oxygen monitoring
         if o2_samples:
             o2_min, o2_max, o2_avg = min(o2_samples), max(o2_samples), sum(o2_samples)/len(o2_samples)
-            print(f"[O2-MONITOR] MCS {mcs} O2: min={o2_min:.3f} avg={o2_avg:.3f} max={o2_max:.3f} | "
-                  f"Thresholds: N/H={P('O2_Thresh_NormoxicHypoxic'):.3f} H/Nec={P('O2_Thresh_HypoxicNecrotic'):.3f}")
+            logger.debug(
+                f"[O2-MONITOR] MCS {mcs} O2: min={o2_min:.3f} avg={o2_avg:.3f} max={o2_max:.3f} | "
+                f"Thresholds: N/H={P('O2_Thresh_NormoxicHypoxic'):.3f} H/Nec={P('O2_Thresh_HypoxicNecrotic'):.3f}"
+            )
         
         # Simple debug info
         if mcs % (int(P('OutputFrequency')) * 2) == 0:
-            print(f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} "
-                  f"N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}")
+            logger.debug(
+                f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} "
+                f"N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}"
+            )
