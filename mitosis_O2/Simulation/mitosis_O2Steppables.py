@@ -90,6 +90,21 @@ class SingleCellInitSteppable(SteppableBasePy):
 
 # ------------------------- OXYGEN-DRIVEN FATE & GROWTH ---------------------------- #
 class O2DrivenFateSteppable(SteppableBasePy):
+    def __init__(self, frequency=1):
+        super().__init__(frequency)
+        # Cache frequently used parameters to avoid repeated lookups
+        self.o2_thresh_hypoxic_necrotic = P('O2_Thresh_HypoxicNecrotic')
+        self.o2_thresh_normoxic_hypoxic = P('O2_Thresh_NormoxicHypoxic')
+        self.lambda_volume_normoxic = P('LambdaVolumeNormoxic')
+        self.lambda_surface_normoxic = P('LambdaSurfaceNormoxic')
+        self.lambda_volume_hypoxic = P('LambdaVolumeHypoxic')
+        self.lambda_surface_hypoxic = P('LambdaSurfaceHypoxic')
+        self.lambda_volume_necrotic = P('LambdaVolumeNecrotic')
+        self.lambda_surface_necrotic = P('LambdaSurfaceNecrotic')
+        self.growth_rate_normoxic = P('GrowthRateNormoxic')
+        self.necrotic_shrinkage_rate = P('NecroticShrinkageRate')
+        self.necrotic_lifetime = int(P('NecroticLifetime'))
+        self.output_frequency = int(P('OutputFrequency'))
     def step(self, mcs):
         oxy = self.field.Oxygen
         for cell in self.cell_list:
@@ -107,18 +122,18 @@ class O2DrivenFateSteppable(SteppableBasePy):
 
             # FIELD-DRIVEN PHENOTYPE CHANGES - Two-Threshold System
             if cell.type == self.NORMOXIC:
-                if o2 < P('O2_Thresh_HypoxicNecrotic'):
+                if o2 < self.o2_thresh_hypoxic_necrotic:
                     self._to_necrotic(cell); continue
-                elif o2 < P('O2_Thresh_NormoxicHypoxic'):
+                elif o2 < self.o2_thresh_normoxic_hypoxic:
                     self._to_hypoxic(cell)
-                    if mcs % int(P('OutputFrequency')) == 0:
+                    if mcs % self.output_frequency == 0:
                         print(f"[FATE] Cell {cell.id} NORMOXIC->HYPOXIC at O2={o2:.3f}")
             elif cell.type == self.HYPOXIC:
-                if o2 >= P('O2_Thresh_NormoxicHypoxic'):
+                if o2 >= self.o2_thresh_normoxic_hypoxic:
                     self._to_normoxic(cell)
-                    if mcs % int(P('OutputFrequency')) == 0:
+                    if mcs % self.output_frequency == 0:
                         print(f"[FATE] Cell {cell.id} HYPOXIC->NORMOXIC at O2={o2:.3f}")
-                elif o2 < P('O2_Thresh_HypoxicNecrotic'):
+                elif o2 < self.o2_thresh_hypoxic_necrotic:
                     self._to_necrotic(cell); continue
 
             self._grow(cell)
@@ -128,8 +143,8 @@ class O2DrivenFateSteppable(SteppableBasePy):
         prev_tv = getattr(cell, 'targetVolume', cell.volume)
         cell.type = self.NORMOXIC
         # Assign per-type lambdas under Python control
-        cell.lambdaVolume = P('LambdaVolumeNormoxic')
-        cell.lambdaSurface = P('LambdaSurfaceNormoxic')
+        cell.lambdaVolume = self.lambda_volume_normoxic
+        cell.lambdaSurface = self.lambda_surface_normoxic
         # Keep previous target volume (do not reset to current volume)
         cell.targetVolume = prev_tv
         # Keep surface coherent with target volume
@@ -138,8 +153,8 @@ class O2DrivenFateSteppable(SteppableBasePy):
     def _to_hypoxic(self, cell):
         prev_tv = getattr(cell, 'targetVolume', cell.volume)
         cell.type = self.HYPOXIC
-        cell.lambdaVolume = P('LambdaVolumeHypoxic')
-        cell.lambdaSurface = P('LambdaSurfaceHypoxic')
+        cell.lambdaVolume = self.lambda_volume_hypoxic
+        cell.lambdaSurface = self.lambda_surface_hypoxic
         # Keep previous target volume (do not reset to current volume)
         cell.targetVolume = prev_tv
         # For hypoxic cells, don't use mathematical surface equations - keep current surface
@@ -151,8 +166,8 @@ class O2DrivenFateSteppable(SteppableBasePy):
     def _to_necrotic(self, cell):
         cell.type = self.NECROTIC
         # Assign per-type lambdas under Python control
-        cell.lambdaVolume = P('LambdaVolumeNecrotic')
-        cell.lambdaSurface = P('LambdaSurfaceNecrotic')
+        cell.lambdaVolume = self.lambda_volume_necrotic
+        cell.lambdaSurface = self.lambda_surface_necrotic
         # Freeze volume when becoming necrotic - NO mathematical formulas
         cell.targetVolume = cell.volume
         # Keep current surface, no mathematical calculations for necrotic cells
@@ -166,7 +181,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
     def _grow(self, cell):
         # Growth only for normoxic cells - use mathematical surface formula only for growing cells
         if cell.type == self.NORMOXIC:
-            growth_rate = P('GrowthRateNormoxic')
+            growth_rate = self.growth_rate_normoxic
 
             if growth_rate <= 0:
                 # Keep previous targets unchanged to maintain a stable volume constraint
@@ -181,7 +196,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
             # Linearized update for surface: dS ≈ (2/3)*(S/V)*dV
             cell.targetSurface = old_ts + (2.0 / 3.0) * (old_ts / old_tv) * growth_rate
 
-            if self.mcs % int(P('OutputFrequency')) == 0:
+            if self.mcs % self.output_frequency == 0:
                 print(
                     f"[GROW] MCS {self.mcs} cell {cell.id} type={cell.type} "
                     f"vol={cell.volume:.1f} targetVol {old_tv:.1f}->{cell.targetVolume:.1f} "
@@ -197,7 +212,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
         if 'necrotic_mcs' not in cell.dict:
             cell.dict['necrotic_mcs'] = self.mcs
         age = self.mcs - cell.dict['necrotic_mcs']
-        lifetime_limit = int(P('NecroticLifetime'))
+        lifetime_limit = self.necrotic_lifetime
 
         if age >= lifetime_limit:
             if random.random() < 0.75:
@@ -207,9 +222,9 @@ class O2DrivenFateSteppable(SteppableBasePy):
                 cell.dict['necrotic_mcs'] = self.mcs
                 return
 
-        reduction_ratio = P('NecroticShrinkageRate')
+        reduction_ratio = self.necrotic_shrinkage_rate
         if reduction_ratio > 0:
-            cell.lambdaVolume = P('LambdaVolumeNecrotic')
+            cell.lambdaVolume = self.lambda_volume_necrotic
             cell.targetVolume = max(1, int(cell.volume * (1.0 - reduction_ratio)))
 
 
@@ -218,21 +233,23 @@ class O2MitosisSteppable(MitosisSteppableBase):
     def __init__(self, frequency=1):
         super().__init__(frequency)
         self.set_parent_child_position_flag(0)
+        # Cache parameters used during division checks
+        self.final_target_volume = P('FinalTargetVolume')
+        self.growth_rate_normoxic = P('GrowthRateNormoxic')
+        self.div_prob_normoxic = P('DivProbNormoxic')
 
     def step(self, mcs):
         # Division when target volume reaches final target volume
         cells_to_divide = []
-        final_target_volume = P('FinalTargetVolume')
         
         for cell in self.cell_list:
             if cell.type in (0, self.NECROTIC):
                 continue
             # Only normoxic cells divide (hypoxic growth rate is 0)
-            if cell.type == self.NORMOXIC and P('GrowthRateNormoxic') > 0:
+            if cell.type == self.NORMOXIC and self.growth_rate_normoxic > 0:
                 # Divide when target volume reaches final target volume
-                if cell.targetVolume >= final_target_volume:
-                    prob = P('DivProbNormoxic')
-                    if random.random() < prob:
+                if cell.targetVolume >= self.final_target_volume:
+                    if random.random() < self.div_prob_normoxic:
                         cells_to_divide.append(cell)
 
         for cell in cells_to_divide:
