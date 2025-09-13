@@ -1,13 +1,31 @@
 from cc3d.core.PySteppables import *
 import random, os, math
 from xml.dom import minidom
+import logging
 
-# Pre-computed constant for spherical surface calculations
+# Global debug flag controlling logging verbosity
+DEBUG = False
+
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG else logging.INFO,
+    format="%(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Pre-computed constants for optimization
 SPHERE_SURF_COEFF = (36.0 * math.pi) ** (1.0 / 3.0)
+TWO_THIRDS = 2.0 / 3.0
 
 def surface_from_volume(vol: float) -> float:
     """Return spherical surface estimate for a given volume."""
-    return SPHERE_SURF_COEFF * (vol ** (2.0 / 3.0))
+    return SPHERE_SURF_COEFF * (vol ** TWO_THIRDS)
+
+def get_safe_coordinates(cell, max_x: int, max_y: int, max_z: int) -> tuple:
+    """Get cell COM coordinates safely clamped to field bounds."""
+    x = min(max(int(round(cell.xCOM)), 0), max_x)
+    y = min(max(int(round(cell.yCOM)), 0), max_y) 
+    z = min(max(int(round(cell.zCOM)), 0), max_z)
+    return x, y, z
 
 # ------------------------- PARAMETER HANDLING ---------------------------- #
 def _load_user_parameters(xml_filename: str) -> dict:
@@ -34,7 +52,7 @@ def _load_user_parameters(xml_filename: str) -> dict:
     return params
 
 PARAMS = _load_user_parameters('mitosis_O2.xml')
-print(f"[PARAM] Loaded {len(PARAMS)} parameters from XML")
+logger.info(f"[PARAM] Loaded {len(PARAMS)} parameters from XML")
 
 def P(name: str):
     if name not in PARAMS:
@@ -47,7 +65,7 @@ class OxygenInitSteppable(SteppableBasePy):
     def start(self):
         # Ensure entire oxygen field starts at 1.0
         self.field.Oxygen[:, :, :] = 1.0
-        print(f"[OXYGEN] Initialized entire domain to concentration 1.0")
+        logger.debug("[OXYGEN] Initialized entire domain to concentration 1.0")
 
 
 # ------------------------- SINGLE CELL INITIALIZATION ---------------------------- #
@@ -75,22 +93,24 @@ class SingleCellInitSteppable(SteppableBasePy):
         initial_volume = (4.0/3.0) * math.pi * (initial_radius ** 3)
         cell.targetVolume = initial_volume
         cell.targetSurface = surface_from_volume(initial_volume)
-        print(f"[INIT] Created single cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
+        logger.info(
+            f"[INIT] Created single cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}"
+        )
 
         # Ensure only one cell
         for other_cell in list(self.cell_list):
             if other_cell.id != cell.id:
                 try:
                     self.delete_cell(other_cell)
-                    print(f"[INIT] Removed extra cell {other_cell.id}")
+                    logger.debug(f"[INIT] Removed extra cell {other_cell.id}")
                 except Exception:
                     pass
-        print(f"[INIT] Final cell count: {len(self.cell_list)}")
+        logger.info(f"[INIT] Final cell count: {len(self.cell_list)}")
 
 
 # ------------------------- OXYGEN-DRIVEN FATE & GROWTH ---------------------------- #
 class O2DrivenFateSteppable(SteppableBasePy):
-    def __init__(self, frequency=1):
+    def __init__(self, frequency: int = 5):
         super().__init__(frequency)
         # Cache frequently used parameters to avoid repeated lookups
         self.o2_thresh_hypoxic_necrotic = P('O2_Thresh_HypoxicNecrotic')
@@ -105,34 +125,47 @@ class O2DrivenFateSteppable(SteppableBasePy):
         self.necrotic_shrinkage_rate = P('NecroticShrinkageRate')
         self.necrotic_lifetime = int(P('NecroticLifetime'))
         self.output_frequency = int(P('OutputFrequency'))
+        # Pre-calculate field bounds for optimization
+        self.max_x = None
+        self.max_y = None
+        self.max_z = None
+        
+    def start(self):
+        # Cache dimension bounds once at start
+        self.max_x = self.dim.x - 1
+        self.max_y = self.dim.y - 1
+        self.max_z = self.dim.z - 1
+        # Cache cell types for faster comparison
+        self.TYPE_MEDIUM = 0
+        self.TYPE_NORMOXIC = self.NORMOXIC
+        self.TYPE_HYPOXIC = self.HYPOXIC
+        self.TYPE_NECROTIC = self.NECROTIC
     def step(self, mcs):
         oxy = self.field.Oxygen
         for cell in self.cell_list:
-            if cell.type == 0:  # Medium
+            if cell.type == self.TYPE_MEDIUM:  # Medium
                 continue
-            if cell.type == self.NECROTIC:
+            if cell.type == self.TYPE_NECROTIC:
                 self._process_necrotic(cell)
                 continue
 
-            # Sample oxygen at COM safely
-            x = min(max(int(round(cell.xCOM)), 0), self.dim.x - 1)
-            y = min(max(int(round(cell.yCOM)), 0), self.dim.y - 1)
-            z = min(max(int(round(cell.zCOM)), 0), self.dim.z - 1)
+            # Sample oxygen at COM safely using helper function
+            x, y, z = get_safe_coordinates(cell, self.max_x, self.max_y, self.max_z)
             o2 = float(oxy[x, y, z])
 
             # FIELD-DRIVEN PHENOTYPE CHANGES - Two-Threshold System
-            if cell.type == self.NORMOXIC:
+            if cell.type == self.TYPE_NORMOXIC:
                 if o2 < self.o2_thresh_hypoxic_necrotic:
                     self._to_necrotic(cell); continue
                 elif o2 < self.o2_thresh_normoxic_hypoxic:
                     self._to_hypoxic(cell)
                     if mcs % self.output_frequency == 0:
-                        print(f"[FATE] Cell {cell.id} NORMOXIC->HYPOXIC at O2={o2:.3f}")
-            elif cell.type == self.HYPOXIC:
+                        logger.debug(f"[FATE] Cell {cell.id} NORMOXIC->HYPOXIC at O2={o2:.3f}")
+            elif cell.type == self.TYPE_HYPOXIC:
                 if o2 >= self.o2_thresh_normoxic_hypoxic:
                     self._to_normoxic(cell)
                     if mcs % self.output_frequency == 0:
-                        print(f"[FATE] Cell {cell.id} HYPOXIC->NORMOXIC at O2={o2:.3f}")
+                        logger.debug(f"[FATE] Cell {cell.id} HYPOXIC->NORMOXIC at O2={o2:.3f}")
                 elif o2 < self.o2_thresh_hypoxic_necrotic:
                     self._to_necrotic(cell); continue
 
@@ -141,7 +174,8 @@ class O2DrivenFateSteppable(SteppableBasePy):
     def _to_normoxic(self, cell):
         # Preserve/restore per-cell targets on type switch to avoid XML target resets
         prev_tv = getattr(cell, 'targetVolume', cell.volume)
-        cell.type = self.NORMOXIC
+        old_type = cell.type
+        cell.type = self.TYPE_NORMOXIC
         # Assign per-type lambdas under Python control
         cell.lambdaVolume = self.lambda_volume_normoxic
         cell.lambdaSurface = self.lambda_surface_normoxic
@@ -149,10 +183,14 @@ class O2DrivenFateSteppable(SteppableBasePy):
         cell.targetVolume = prev_tv
         # Keep surface coherent with target volume
         cell.targetSurface = surface_from_volume(cell.targetVolume)
+        analysis = self.shared_steppable_vars.get('light_analysis')
+        if analysis is not None:
+            analysis.record_type_change(cell, old_type, cell.type)
 
     def _to_hypoxic(self, cell):
         prev_tv = getattr(cell, 'targetVolume', cell.volume)
-        cell.type = self.HYPOXIC
+        old_type = cell.type
+        cell.type = self.TYPE_HYPOXIC
         cell.lambdaVolume = self.lambda_volume_hypoxic
         cell.lambdaSurface = self.lambda_surface_hypoxic
         # Keep previous target volume (do not reset to current volume)
@@ -162,9 +200,13 @@ class O2DrivenFateSteppable(SteppableBasePy):
             cell.targetSurface = cell.surface
         except Exception:
             pass  # Keep whatever surface value was there
+        analysis = self.shared_steppable_vars.get('light_analysis')
+        if analysis is not None:
+            analysis.record_type_change(cell, old_type, cell.type)
 
     def _to_necrotic(self, cell):
-        cell.type = self.NECROTIC
+        old_type = cell.type
+        cell.type = self.TYPE_NECROTIC
         # Assign per-type lambdas under Python control
         cell.lambdaVolume = self.lambda_volume_necrotic
         cell.lambdaSurface = self.lambda_surface_necrotic
@@ -176,11 +218,16 @@ class O2DrivenFateSteppable(SteppableBasePy):
         except Exception:
             pass  # Don't calculate surface for necrotic cells
         cell.dict['necrotic_mcs'] = self.mcs
-        print(f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}")
+        logger.info(
+            f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}"
+        )
+        analysis = self.shared_steppable_vars.get('light_analysis')
+        if analysis is not None:
+            analysis.record_type_change(cell, old_type, cell.type)
 
     def _grow(self, cell):
         # Growth only for normoxic cells - use mathematical surface formula only for growing cells
-        if cell.type == self.NORMOXIC:
+        if cell.type == self.TYPE_NORMOXIC:
             growth_rate = self.growth_rate_normoxic
 
             if growth_rate <= 0:
@@ -193,17 +240,17 @@ class O2DrivenFateSteppable(SteppableBasePy):
             old_tv = cell.targetVolume
             old_ts = cell.targetSurface
             cell.targetVolume = old_tv + growth_rate
-            # Linearized update for surface: dS ≈ (2/3)*(S/V)*dV
-            cell.targetSurface = old_ts + (2.0 / 3.0) * (old_ts / old_tv) * growth_rate
+            # Optimized linearized update for surface: dS ≈ (2/3)*(S/V)*dV
+            cell.targetSurface = old_ts + TWO_THIRDS * (old_ts / old_tv) * growth_rate
 
             if self.mcs % self.output_frequency == 0:
-                print(
+                logger.debug(
                     f"[GROW] MCS {self.mcs} cell {cell.id} type={cell.type} "
                     f"vol={cell.volume:.1f} targetVol {old_tv:.1f}->{cell.targetVolume:.1f} "
                     f"targetSurf->{cell.targetSurface:.1f}"
                 )
         
-        elif cell.type == self.HYPOXIC:
+        elif cell.type == self.TYPE_HYPOXIC:
             # Hypoxic cells don't grow but keep their current volume/surface targets
             # No mathematical surface calculations for hypoxic cells
             pass
@@ -253,20 +300,28 @@ class O2MitosisSteppable(MitosisSteppableBase):
                         cells_to_divide.append(cell)
 
         for cell in cells_to_divide:
-            print(f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} target={cell.targetVolume:.1f}")
+            logger.info(
+                f"[MITOSIS-TRIGGER] MCS {mcs} cell {cell.id} vol={cell.volume:.1f} "
+                f"target={cell.targetVolume:.1f}"
+            )
             self.divide_cell_random_orientation(cell)
 
     def update_attributes(self):
-        # Post-mitosis: split target volumes and keep surfaces coherent.
-        self.parent_cell.targetVolume /= 2.0
+        # Post-mitosis: split target volumes properly for both parent and child
+        original_target_volume = self.parent_cell.targetVolume
+        split_target_volume = original_target_volume / 2.0
+        
+        # Set target volumes for both parent and child explicitly
+        self.parent_cell.targetVolume = split_target_volume
         self.clone_parent_2_child()
         self.child_cell.type = self.parent_cell.type
+        self.child_cell.targetVolume = split_target_volume  # Ensure child gets correct target volume
 
         # Recompute target surfaces using spherical estimate (cheap)
         for c in (self.parent_cell, self.child_cell):
             c.targetSurface = surface_from_volume(c.targetVolume)
 
-        print(
+        logger.info(
             f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} "
             f"parentTV={self.parent_cell.targetVolume:.1f} childTV={self.child_cell.targetVolume:.1f}"
         )
@@ -310,58 +365,122 @@ class CenterCompactionSteppable(SteppableBasePy):
             
             # Debug output every 50 MCS for a few cells
             if mcs % 50 == 0 and cell.id <= 3:
-                print(f"[COMPACT] MCS={mcs} Cell={cell.id} r={r:.1f} force_mag={force_magnitude:.2f} "
-                      f"lambdaVec=({cell.lambdaVecX:.2f},{cell.lambdaVecY:.2f},{cell.lambdaVecZ:.2f})")
+                logger.debug(
+                    f"[COMPACT] MCS={mcs} Cell={cell.id} r={r:.1f} force_mag={force_magnitude:.2f} "
+                    f"lambdaVec=({cell.lambdaVecX:.2f},{cell.lambdaVecY:.2f},{cell.lambdaVecZ:.2f})"
+                )
 
 
 
 
 # ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
 class LightAnalysisSteppable(SteppableBasePy):
+    VALIDATION_PERIOD = 20  # Changed from 1000 to 20
+    
+    def __init__(self, frequency: int | None = None):
+        if frequency is None:
+            frequency = int(P('OutputFrequency'))
+        super().__init__(frequency=frequency)
+        # Cache thresholds to avoid repeated P() calls in validation
+        self.o2_thresh_normoxic_hypoxic = P('O2_Thresh_NormoxicHypoxic')
+        self.o2_thresh_hypoxic_necrotic = P('O2_Thresh_HypoxicNecrotic')
+        # Pre-calculate field bounds
+        self.max_x = None
+        self.max_y = None
+        self.max_z = None
+
     def start(self):
+        # Cache dimension bounds once at start
+        self.max_x = self.dim.x - 1
+        self.max_y = self.dim.y - 1
+        self.max_z = self.dim.z - 1
         self.plot_total = self.add_new_plot_window(title='Total Volume', x_axis_title='MCS', y_axis_title='Volume',
                                                    x_scale_type='linear', y_scale_type='linear', grid=True)
         self.plot_total.add_plot("Volume", style='Lines', color='blue', size=2)
         self.plot_counts = self.add_new_plot_window(title='Cell Counts', x_axis_title='MCS', y_axis_title='Count',
                                                     x_scale_type='linear', y_scale_type='linear', grid=True)
-        for name, color in (('Normoxic','green'), ('Hypoxic','orange'), ('Necrotic','red')):
+        for name, color in (('Normoxic', 'green'), ('Hypoxic', 'orange'), ('Necrotic', 'red')):
             self.plot_counts.add_plot(name, style='Lines', color=color, size=2)
 
-    def step(self, mcs):
-        if mcs % int(P('OutputFrequency')) != 0:
+        self.counts = {'Normoxic': 0, 'Hypoxic': 0, 'Necrotic': 0}
+        for cell in self.cell_list:
+            if cell.type == self.NORMOXIC:
+                self.counts['Normoxic'] += 1
+            elif cell.type == self.HYPOXIC:
+                self.counts['Hypoxic'] += 1
+            elif cell.type == self.NECROTIC:
+                self.counts['Necrotic'] += 1
+            cell.dict['last_volume'] = cell.volume
+        self.shared_steppable_vars['light_analysis'] = self
+
+    def cell_added(self, cell):
+        self.total_volume += cell.volume
+        cell.dict['last_volume'] = cell.volume
+        if cell.type == self.NORMOXIC:
+            self.counts['Normoxic'] += 1
+        elif cell.type == self.HYPOXIC:
+            self.counts['Hypoxic'] += 1
+        elif cell.type == self.NECROTIC:
+            self.counts['Necrotic'] += 1
+
+    def cell_removed(self, cell):
+        self.total_volume -= cell.volume
+        if cell.type == self.NORMOXIC:
+            self.counts['Normoxic'] -= 1
+        elif cell.type == self.HYPOXIC:
+            self.counts['Hypoxic'] -= 1
+        elif cell.type == self.NECROTIC:
+            self.counts['Necrotic'] -= 1
+
+    def record_type_change(self, cell, old_type, new_type):
+        if old_type == new_type:
             return
-        counts = {'Normoxic':0,'Hypoxic':0,'Necrotic':0}
-        total_vol = 0
-        o2_samples = []  # Track oxygen levels
-        
+        if old_type == self.NORMOXIC:
+            self.counts['Normoxic'] -= 1
+        elif old_type == self.HYPOXIC:
+            self.counts['Hypoxic'] -= 1
+        elif old_type == self.NECROTIC:
+            self.counts['Necrotic'] -= 1
+        if new_type == self.NORMOXIC:
+            self.counts['Normoxic'] += 1
+        elif new_type == self.HYPOXIC:
+            self.counts['Hypoxic'] += 1
+        elif new_type == self.NECROTIC:
+            self.counts['Necrotic'] += 1
+
+    def update_volume(self, delta):
+        self.total_volume += delta
+
+    def step(self, mcs):
+        # Calculate fresh total volume each time to avoid tracking errors
+        total_vol = 0.0
         for cell in self.cell_list:
             total_vol += cell.volume
-            if cell.type == self.NORMOXIC:
-                counts['Normoxic'] += 1
-            elif cell.type == self.HYPOXIC:
-                counts['Hypoxic'] += 1
-            elif cell.type == self.NECROTIC:
-                counts['Necrotic'] += 1
-
-            # Sample oxygen at cell location for monitoring
-            if cell.type != 0:  # Not medium
-                x = min(max(int(round(cell.xCOM)), 0), self.dim.x - 1)
-                y = min(max(int(round(cell.yCOM)), 0), self.dim.y - 1)
-                z = min(max(int(round(cell.zCOM)), 0), self.dim.z - 1)
-                o2 = float(self.field.Oxygen[x, y, z])
-                o2_samples.append(o2)
-                
+        
         self.plot_total.add_data_point('Volume', mcs, total_vol)
-        for k in counts:
-            self.plot_counts.add_data_point(k, mcs, counts[k])
-        
-        # Oxygen monitoring
-        if o2_samples:
-            o2_min, o2_max, o2_avg = min(o2_samples), max(o2_samples), sum(o2_samples)/len(o2_samples)
-            print(f"[O2-MONITOR] MCS {mcs} O2: min={o2_min:.3f} avg={o2_avg:.3f} max={o2_max:.3f} | "
-                  f"Thresholds: N/H={P('O2_Thresh_NormoxicHypoxic'):.3f} H/Nec={P('O2_Thresh_HypoxicNecrotic'):.3f}")
-        
-        # Simple debug info
-        if mcs % (int(P('OutputFrequency')) * 2) == 0:
-            print(f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} "
-                  f"N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}")
+        for k in self.counts:
+            self.plot_counts.add_data_point(k, mcs, self.counts[k])
+
+        if mcs % self.VALIDATION_PERIOD == 0:
+            counts = {'Normoxic': 0, 'Hypoxic': 0, 'Necrotic': 0}
+            o2_samples = []
+            for cell in self.cell_list:
+                if cell.type == self.NORMOXIC:
+                    counts['Normoxic'] += 1
+                elif cell.type == self.HYPOXIC:
+                    counts['Hypoxic'] += 1
+                elif cell.type == self.NECROTIC:
+                    counts['Necrotic'] += 1
+                if cell.type != 0:
+                    x, y, z = get_safe_coordinates(cell, self.max_x, self.max_y, self.max_z)
+                    o2 = float(self.field.Oxygen[x, y, z])
+                    o2_samples.append(o2)
+            # Update counts if validation finds differences
+            if counts != self.counts:
+                logger.debug(f"[VALIDATION] Counter mismatch at MCS {mcs} - resetting")
+                self.counts = counts
+            if o2_samples:
+                o2_min, o2_max, o2_avg = min(o2_samples), max(o2_samples), sum(o2_samples) / len(o2_samples)
+                logger.debug(
+                    f"[O2-MONITOR] MCS {mcs} O2: min={o2_min:.3f} avg={o2_avg:.3f} max={o2_max:.3f} | "
+                    f"Thresholds: N/H={self.o2_thresh_normoxic_hypoxic:.3f} H/Nec={self.o2_thresh_hypoxic_necrotic:.3f}")

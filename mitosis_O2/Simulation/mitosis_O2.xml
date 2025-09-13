@@ -57,7 +57,7 @@
 
   <!-- Oxygen field diffusing from boundaries to center -->
   <Steppable Type="DiffusionSolverFE">
-  <!-- <Steppable Type="SteadyStateDiffusionSolver"> -->
+
  
     <DiffusionField Name="Oxygen">
       <DiffusionData>
@@ -105,16 +105,16 @@
     <Param Name="GrowthRateNormoxic" Value="0.95" Desc="Volume increment per MCS (normoxic cells)"/>
 
     <!-- Per-type lambda parameters (used by steppables) -->
-    <Param Name="LambdaVolumeNormoxic" Value="2.0" Desc="Volume constraint for normoxic"/>
-    <Param Name="LambdaVolumeHypoxic" Value="2.0" Desc="Volume constraint for hypoxic"/>
+    <Param Name="LambdaVolumeNormoxic" Value="20.0" Desc="Volume constraint for normoxic"/>
+    <Param Name="LambdaVolumeHypoxic" Value="20.0" Desc="Volume constraint for hypoxic"/>
     <Param Name="LambdaVolumeNecrotic" Value="3.0" Desc="Volume constraint for necrotic"/>
 
-    <Param Name="LambdaSurfaceNormoxic" Value="20.0" Desc="Surface constraint for normoxic"/>
+    <Param Name="LambdaSurfaceNormoxic" Value="2.0" Desc="Surface constraint for normoxic"/>
     <Param Name="LambdaSurfaceHypoxic" Value="2.0" Desc="Surface constraint for hypoxic"/>
     <Param Name="LambdaSurfaceNecrotic" Value="3.0" Desc="Surface constraint for necrotic"/>
     
     <!-- FIELD-DRIVEN PHENOTYPE: Two-Threshold System -->
-    <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.4" Desc="Single threshold for normoxic/hypoxic transition"/>
+    <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.3" Desc="Single threshold for normoxic/hypoxic transition"/>
     <Param Name="O2_Thresh_HypoxicNecrotic" Value="0.1" Desc="Threshold for hypoxic to necrotic transition"/>
     
     <!-- Division Probabilities -->
