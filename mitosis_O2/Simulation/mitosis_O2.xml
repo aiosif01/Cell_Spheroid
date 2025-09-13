@@ -1,5 +1,9 @@
 <CompuCell3D>
-
+ 
+ <Metadata>
+    <NumberOfProcessors>4</NumberOfProcessors>
+  </Metadata>
+  
   <Potts>
     <Dimensions x="100" y="100" z="100"/>
     <Steps>10000</Steps>
@@ -52,8 +56,8 @@
   </Plugin>
 
   <!-- Oxygen field diffusing from boundaries to center -->
-  <!-- <Steppable Type="DiffusionSolverFE"> -->
-  <Steppable Type="SteadyStateDiffusionSolver">
+  <Steppable Type="DiffusionSolverFE">
+  <!-- <Steppable Type="SteadyStateDiffusionSolver"> -->
  
     <DiffusionField Name="Oxygen">
       <DiffusionData>
@@ -68,8 +72,8 @@
 
       <SecretionData>
         <!-- Michaelis-Menten uptake with RelativeUptakeRate -->
-        <Uptake Type="Normoxic" MaxUptake="0.005" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.01"/>
-        <Uptake Type="Hypoxic"  MaxUptake="0.003" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.005"/>
+        <Uptake Type="Normoxic" MaxUptake="0.015" RelativeUptakeRate="0.075" MichaelisMentenCoef="0.01"/>
+        <Uptake Type="Hypoxic"  MaxUptake="0.011" RelativeUptakeRate="0.01" MichaelisMentenCoef="0.005"/>
         <Uptake Type="Necrotic" MaxUptake="0.000" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.00"/>
       </SecretionData>
 
@@ -101,13 +105,13 @@
     <Param Name="GrowthRateNormoxic" Value="0.95" Desc="Volume increment per MCS (normoxic cells)"/>
 
     <!-- Per-type lambda parameters (used by steppables) -->
-    <Param Name="LambdaVolumeNormoxic" Value="8.0" Desc="Volume constraint for normoxic"/>
-    <Param Name="LambdaVolumeHypoxic" Value="8.0" Desc="Volume constraint for hypoxic"/>
-    <Param Name="LambdaVolumeNecrotic" Value="1.0" Desc="Volume constraint for necrotic"/>
+    <Param Name="LambdaVolumeNormoxic" Value="2.0" Desc="Volume constraint for normoxic"/>
+    <Param Name="LambdaVolumeHypoxic" Value="2.0" Desc="Volume constraint for hypoxic"/>
+    <Param Name="LambdaVolumeNecrotic" Value="3.0" Desc="Volume constraint for necrotic"/>
 
-    <Param Name="LambdaSurfaceNormoxic" Value="2.0" Desc="Surface constraint for normoxic"/>
+    <Param Name="LambdaSurfaceNormoxic" Value="20.0" Desc="Surface constraint for normoxic"/>
     <Param Name="LambdaSurfaceHypoxic" Value="2.0" Desc="Surface constraint for hypoxic"/>
-    <Param Name="LambdaSurfaceNecrotic" Value="1.0" Desc="Surface constraint for necrotic"/>
+    <Param Name="LambdaSurfaceNecrotic" Value="3.0" Desc="Surface constraint for necrotic"/>
     
     <!-- FIELD-DRIVEN PHENOTYPE: Two-Threshold System -->
     <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.4" Desc="Single threshold for normoxic/hypoxic transition"/>
@@ -121,7 +125,7 @@
     <Param Name="NecroticLifetime" Value="40" Desc="Maximum MCS a necrotic cell exists"/>
     
     <!-- Force pushing cells toward center to fill gaps -->
-    <Param Name="CenterPushStrength" Value="-10" Desc="Inward force magnitude for living cells"/>
+    <Param Name="CenterPushStrength" Value="-2" Desc="Inward force magnitude for living cells"/>
 
     <!-- Analysis -->
     <Param Name="OutputFrequency" Value="10" Desc="Analysis and log frequency (MCS)"/>
