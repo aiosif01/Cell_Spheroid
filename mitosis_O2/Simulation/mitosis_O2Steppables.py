@@ -324,11 +324,19 @@ class RadiotherapySteppable(SteppableBasePy):
 
     def __init__(self, frequency: int = 1):
         super().__init__(frequency)
-        self._load_rt_parameters()
+        # OER and type label mappings must be initialized in start()
+        # because cell type constants (self.NORMOXIC / self.HYPOXIC)
+        # are provided by the steppable base and may not be available
+        # during __init__ in some CC3D runtime environments.
+        self.oer_by_type = {}
+        self.type_labels = {}
+        # RT parameters and counters will be (re)loaded in start()
         self.fractions_delivered = 0
         self.last_fraction_mcs = -1
         self.total_exposed = 0
         self.total_killed = 0
+        self.total_exposed_by_type = {}
+        self.total_killed_by_type = {}
 
     def _load_rt_parameters(self):
         self.enabled = bool(int(P('RT_Enable')))
@@ -340,16 +348,31 @@ class RadiotherapySteppable(SteppableBasePy):
         self.beta = float(P('RT_Beta'))
         self.lambda_volume_necrotic = P('LambdaVolumeNecrotic')
         self.lambda_surface_necrotic = P('LambdaSurfaceNecrotic')
-        survival = math.exp(-(self.alpha * self.dose + self.beta * (self.dose ** 2)))
-        self.expected_survival = max(0.0, min(1.0, survival))
-        self.kill_probability = max(0.0, min(1.0, 1.0 - self.expected_survival))
+        self.dose_squared = self.dose * self.dose
+        self.expected_survival = {}
+        for cell_type, oer in self.oer_by_type.items():
+            survival = math.exp(
+                -(self.alpha * self.dose) / oer
+                - (self.beta * self.dose_squared) / (oer * oer)
+            )
+            self.expected_survival[cell_type] = max(0.0, min(1.0, survival))
 
     def start(self):
+        # Initialize OER mapping using cell type constants available now
+        if not self.oer_by_type:
+            # default OER values: normoxic ~1, hypoxic ~3 (makes hypoxic more radioresistant)
+            self.oer_by_type = {self.NORMOXIC: 1.0, self.HYPOXIC: 3.0}
+            self.type_labels = {self.NORMOXIC: 'Normoxic', self.HYPOXIC: 'Hypoxic'}
+
+        # Load runtime RT parameters and precompute expected survival per type
         self._load_rt_parameters()
+        # Reset counters
         self.fractions_delivered = 0
         self.last_fraction_mcs = -1
         self.total_exposed = 0
         self.total_killed = 0
+        self.total_exposed_by_type = {ct: 0 for ct in self.oer_by_type}
+        self.total_killed_by_type = {ct: 0 for ct in self.oer_by_type}
 
     def step(self, mcs):
         if not self.enabled or self.total_fractions <= 0:
@@ -365,26 +388,43 @@ class RadiotherapySteppable(SteppableBasePy):
         self._deliver_fraction(mcs)
 
     def _deliver_fraction(self, mcs):
-        normoxic_cells = list(self.cell_list_by_type(self.NORMOXIC))
-        n_before = len(normoxic_cells)
+        target_cells = list(self.cell_list_by_type(self.NORMOXIC, self.HYPOXIC))
+        n_before = len(target_cells)
         if n_before == 0:
             self.fractions_delivered += 1
             self.last_fraction_mcs = mcs
             logger.info(
-                f"[RT] MCS {mcs} fraction {self.fractions_delivered} -- no normoxic targets"
+                f"[RT] MCS {mcs} fraction {self.fractions_delivered} -- no normoxic/hypoxic targets"
             )
             return
 
+        exposed_by_type = {ct: 0 for ct in self.oer_by_type}
+        killed_by_type = {ct: 0 for ct in self.oer_by_type}
         killed = 0
-        for cell in normoxic_cells:
-            if random.random() < self.kill_probability:
+        for cell in target_cells:
+            cell_type = cell.type
+            oer = self.oer_by_type.get(cell_type)
+            if oer is None:
+                continue
+            survival_prob = math.exp(
+                -(self.alpha * self.dose) / oer
+                - (self.beta * self.dose_squared) / (oer * oer)
+            )
+            survival_prob = max(0.0, min(1.0, survival_prob))
+            kill_prob = 1.0 - survival_prob
+            exposed_by_type[cell_type] += 1
+            if random.random() < kill_prob:
                 self._kill_cell(cell, mcs)
                 killed += 1
+                killed_by_type[cell_type] += 1
 
         survived = n_before - killed
         observed_sr = survived / n_before if n_before > 0 else 1.0
-        self.total_exposed += n_before
-        self.total_killed += killed
+        self.total_exposed += sum(exposed_by_type.values())
+        self.total_killed += sum(killed_by_type.values())
+        for cell_type in exposed_by_type:
+            self.total_exposed_by_type[cell_type] += exposed_by_type[cell_type]
+            self.total_killed_by_type[cell_type] += killed_by_type[cell_type]
         cumulative_sr = (
             (self.total_exposed - self.total_killed) / self.total_exposed
             if self.total_exposed > 0 else 1.0
@@ -392,11 +432,22 @@ class RadiotherapySteppable(SteppableBasePy):
         self.fractions_delivered += 1
         self.last_fraction_mcs = mcs
 
+        type_stats = []
+        for cell_type in self.oer_by_type:
+            exposed = exposed_by_type[cell_type]
+            if exposed == 0:
+                continue
+            killed_count = killed_by_type[cell_type]
+            type_stats.append(
+                f"{self.type_labels[cell_type]}(OER={self.oer_by_type[cell_type]:.1f} "
+                f"expSR={self.expected_survival[cell_type]:.3f} killed={killed_count}/{exposed})"
+            )
+        type_suffix = f" {' '.join(type_stats)}" if type_stats else ""
+
         logger.info(
             f"[RT] MCS {mcs} fraction {self.fractions_delivered} D={self.dose:g}Gy "
-            f"SR_exp={self.expected_survival:.3f} killProb={self.kill_probability:.3f} "
             f"targets={n_before} killed={killed} survived={survived} "
-            f"SR_obs={observed_sr:.3f} SR_cum={cumulative_sr:.3f}"
+            f"SR_obs={observed_sr:.3f} SR_cum={cumulative_sr:.3f}{type_suffix}"
         )
 
     def _kill_cell(self, cell, mcs):

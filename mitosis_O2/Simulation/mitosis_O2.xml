@@ -67,9 +67,9 @@
 
       <SecretionData>
         <!-- Michaelis-Menten uptake with RelativeUptakeRate -->
-        <Uptake Type="Normoxic" MaxUptake="0.015" RelativeUptakeRate="0.05" MichaelisMentenCoef="0.01"/>
-        <Uptake Type="Hypoxic"  MaxUptake="0.01" RelativeUptakeRate="0.03" MichaelisMentenCoef="0.005"/>
-        <Uptake Type="Necrotic" MaxUptake="0.000" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.00"/>
+        <Uptake Type="Normoxic" MaxUptake="0.012" RelativeUptakeRate="0.04"/>
+        <Uptake Type="Hypoxic"  MaxUptake="0.01" RelativeUptakeRate="0.025"/>
+        <Uptake Type="Necrotic" MaxUptake="0.0" RelativeUptakeRate="0.0"/>
       </SecretionData>
 
       <BoundaryConditions>
@@ -100,13 +100,13 @@
     <Param Name="GrowthRateNormoxic" Value="1.95" Desc="Volume increment per MCS (normoxic cells)"/>
 
     <!-- Per-type lambda parameters (used by steppables) -->
-    <Param Name="LambdaVolumeNormoxic" Value="20.0" Desc="Volume constraint for normoxic"/>
-    <Param Name="LambdaVolumeHypoxic" Value="20.0" Desc="Volume constraint for hypoxic"/>
-    <Param Name="LambdaVolumeNecrotic" Value="3.0" Desc="Volume constraint for necrotic"/>
+    <Param Name="LambdaVolumeNormoxic" Value="50.0" Desc="Volume constraint for normoxic"/>
+    <Param Name="LambdaVolumeHypoxic" Value="50.0" Desc="Volume constraint for hypoxic"/>
+    <Param Name="LambdaVolumeNecrotic" Value="50.0" Desc="Volume constraint for necrotic"/>
 
-    <Param Name="LambdaSurfaceNormoxic" Value="2.0" Desc="Surface constraint for normoxic"/>
-    <Param Name="LambdaSurfaceHypoxic" Value="2.0" Desc="Surface constraint for hypoxic"/>
-    <Param Name="LambdaSurfaceNecrotic" Value="3.0" Desc="Surface constraint for necrotic"/>
+    <Param Name="LambdaSurfaceNormoxic" Value="50.0" Desc="Surface constraint for normoxic"/>
+    <Param Name="LambdaSurfaceHypoxic" Value="50.0" Desc="Surface constraint for hypoxic"/>
+    <Param Name="LambdaSurfaceNecrotic" Value="50.0" Desc="Surface constraint for necrotic"/>
     
     <!-- FIELD-DRIVEN PHENOTYPE: Two-Threshold System -->
     <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.15" Desc="Single threshold for normoxic/hypoxic transition"/>
@@ -116,8 +116,8 @@
     <Param Name="DivProbNormoxic" Value="1" Desc="Division probability for normoxic cells"/>
     
     <!-- Necrotic Cell Behavior -->
-    <Param Name="NecroticShrinkageRate" Value="0.08" Desc="Volume reduction rate per MCS for necrotic cells"/>
-    <Param Name="NecroticLifetime" Value="80" Desc="Maximum MCS a necrotic cell exists"/>
+    <Param Name="NecroticShrinkageRate" Value="0.001" Desc="Volume reduction rate per MCS for necrotic cells"/>
+    <Param Name="NecroticLifetime" Value="90" Desc="Maximum MCS a necrotic cell exists"/>
     
     <!-- Force pushing cells toward center to fill gaps -->
     <Param Name="CenterPushStrength" Value="-5" Desc="Inward force magnitude for living cells"/>
@@ -130,9 +130,9 @@
     <Param Name="RT_Alpha" Value="0.3" Desc="Gy^-1"/>
     <Param Name="RT_Beta" Value="0.03" Desc="Gy^-2"/>
     <Param Name="RT_DoseGy" Value="2.0" Desc="Dose per fraction in Gy"/>
-    <Param Name="RT_StartMCS" Value="200" Desc="First RT fraction time (MCS)"/>
-    <Param Name="RT_PeriodMCS" Value="200" Desc="Spacing between fractions (MCS)"/>
-    <Param Name="RT_Fractions" Value="1" Desc="Number of fractions to deliver"/>
+    <Param Name="RT_StartMCS" Value="1000" Desc="First RT fraction time (MCS)"/>
+    <Param Name="RT_PeriodMCS" Value="80" Desc="Spacing between fractions (MCS)"/>
+    <Param Name="RT_Fractions" Value="3" Desc="Number of fractions to deliver"/>
   </UserParameters>
   
 </CompuCell3D>
