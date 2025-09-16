@@ -1,1 +1,0 @@
-shared_numpy_fields demo shows how to use variable precision numpy fields that can be accessed from both C++ and Python

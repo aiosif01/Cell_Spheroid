@@ -1,1 +1,0 @@
-This model is deprecated.

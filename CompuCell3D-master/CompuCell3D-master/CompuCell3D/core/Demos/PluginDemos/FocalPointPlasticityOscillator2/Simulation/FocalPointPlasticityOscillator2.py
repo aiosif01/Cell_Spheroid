@@ -1,6 +1,0 @@
-from cc3d import CompuCellSetup
-
-from FocalPointPlasticityOscillator2Steppables import FocalPointPlasticityOscillator2Steppable
-CompuCellSetup.register_steppable(steppable=FocalPointPlasticityOscillator2Steppable(frequency=10))
-
-CompuCellSetup.run()

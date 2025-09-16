@@ -1,6 +1,0 @@
-from cc3d import CompuCellSetup
-from .CustomCellAttributesPythonModules import CustomCellAttributePythonSteppable
-
-CompuCellSetup.register_steppable(steppable=CustomCellAttributePythonSteppable(frequency=1))
-
-CompuCellSetup.run()

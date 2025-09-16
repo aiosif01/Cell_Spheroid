@@ -1,7 +1,0 @@
-from cc3d import CompuCellSetup
-
-from elasticityTestFlexExternalPotentialSteppables import elasticityTestFlexExternalPotentialSteppable
-
-CompuCellSetup.register_steppable(steppable=elasticityTestFlexExternalPotentialSteppable(frequency=1))
-
-CompuCellSetup.run()

@@ -1,5 +1,0 @@
-from cc3d import CompuCellSetup
-from LogScaledChemotaxisSteppables import LogScaledChemotaxisSteppable
-
-CompuCellSetup.register_steppable(steppable=LogScaledChemotaxisSteppable(frequency=100))
-CompuCellSetup.run()

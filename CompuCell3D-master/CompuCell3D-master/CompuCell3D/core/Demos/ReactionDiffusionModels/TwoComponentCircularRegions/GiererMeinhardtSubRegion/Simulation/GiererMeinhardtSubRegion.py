@@ -1,7 +1,0 @@
-from cc3d import CompuCellSetup
-
-from GiererMeinhardtSubRegionSteppables import GiererMeinhardtSubRegionSteppable
-
-CompuCellSetup.register_steppable(steppable=GiererMeinhardtSubRegionSteppable(frequency=1))
-
-CompuCellSetup.run()

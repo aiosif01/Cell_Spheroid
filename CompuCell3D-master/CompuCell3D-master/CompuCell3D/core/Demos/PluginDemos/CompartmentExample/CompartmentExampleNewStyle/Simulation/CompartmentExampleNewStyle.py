@@ -1,7 +1,0 @@
-from cc3d import CompuCellSetup
-
-from CompartmentExampleNewStyleSteppables import CompartmentExampleNewStyleSteppable
-
-CompuCellSetup.register_steppable(steppable=CompartmentExampleNewStyleSteppable(frequency=1))
-
-CompuCellSetup.run()

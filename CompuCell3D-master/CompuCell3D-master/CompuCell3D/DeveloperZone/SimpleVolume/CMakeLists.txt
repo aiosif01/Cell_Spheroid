@@ -1,2 +1,0 @@
-ADD_COMPUCELL3D_PLUGIN(SimpleVolume  LINK_LIBRARIES ${CC3DLibraries})
-

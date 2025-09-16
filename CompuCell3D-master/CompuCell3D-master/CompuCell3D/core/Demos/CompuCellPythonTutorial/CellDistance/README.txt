@@ -1,1 +1,0 @@
-This minimalist demo prints the distance vector between different types of cells to the console.

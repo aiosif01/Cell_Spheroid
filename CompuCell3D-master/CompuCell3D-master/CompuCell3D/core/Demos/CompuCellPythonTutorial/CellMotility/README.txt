@@ -1,1 +1,0 @@
-This minimalist demo moves cells by applying some force. The lambda vector (lambdaVecX and lambdaVecY) controls the cell's movement. 

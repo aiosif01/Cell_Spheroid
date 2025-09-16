@@ -1,1 +1,0 @@
-This minimalist demo creates a single cell from a PIFF file, moves the cell, and deletes the cell.

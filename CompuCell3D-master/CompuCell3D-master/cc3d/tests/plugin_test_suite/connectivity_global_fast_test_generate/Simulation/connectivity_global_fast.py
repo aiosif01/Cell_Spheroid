@@ -1,7 +1,0 @@
-from cc3d import CompuCellSetup
-
-from connectivity_global_fastSteppables import connectivity_global_fastSteppable
-
-CompuCellSetup.register_steppable(steppable=connectivity_global_fastSteppable(frequency=1))
-
-CompuCellSetup.run()

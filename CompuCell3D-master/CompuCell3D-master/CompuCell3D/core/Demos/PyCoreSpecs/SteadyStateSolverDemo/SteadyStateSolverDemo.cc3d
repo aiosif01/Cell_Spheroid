@@ -1,3 +1,0 @@
-<Simulation version="4.2.4">
-   <PythonScript Type="PythonScript">Simulation/SteadyStateSolverDemo.py</PythonScript>
-</Simulation>

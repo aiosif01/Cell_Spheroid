@@ -1,5 +1,0 @@
-<Simulation version="4.2.4">
-   <XMLScript Type="XMLScript">Simulation/reciprocatedChemotaxisDemo.xml</XMLScript>
-   <PythonScript Type="PythonScript">Simulation/reciprocatedChemotaxisDemo.py</PythonScript>
-   <Resource Type="Python">Simulation/reciprocatedChemotaxisDemoSteppables.py</Resource>
-</Simulation>

@@ -1,3 +1,0 @@
-CONDA_BUILD_SYSROOT:
-  - /opt/MacOSX11.3.sdk # [osx]
-#  - /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk # [osx]
