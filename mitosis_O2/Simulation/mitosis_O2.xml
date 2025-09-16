@@ -7,11 +7,8 @@
   <Potts>
     <Dimensions x="100" y="100" z="100"/>
     <Steps>10000</Steps>
-    <Temperature>25</Temperature>  <!-- From 25 to 35 for more active reorganization -->
-    <NeighborOrder>3</NeighborOrder>  <!-- INCREASED for smoother spherical surfaces -->
-    <Boundary_x>NoFlux</Boundary_x> <!-- NoFlux boundaries for cell confinement -->
-    <Boundary_y>NoFlux</Boundary_y>
-    <Boundary_z>NoFlux</Boundary_z>
+    <Temperature>25</Temperature> 
+    <NeighborOrder>3</NeighborOrder>  
   </Potts>
 
   <Plugin Name="CellType">
@@ -21,7 +18,6 @@
     <CellType TypeName="Necrotic" TypeId="3"/>
   </Plugin>
 
-  <!-- Volume and surface energy plugins are active, but their parameters are fully set from steppables -->
   <Plugin Name="Volume"/>
   <Plugin Name="Surface"/>
 
@@ -40,7 +36,6 @@
     <Energy Type1="Hypoxic"  Type2="Necrotic">5</Energy>
   </Plugin>
 
-  <!-- Simplified plugin set - removed unnecessary trackers -->
   <Plugin Name="NeighborTracker"/>
   <Plugin Name="CenterOfMass"/>
   <Plugin Name="PixelTracker"/>

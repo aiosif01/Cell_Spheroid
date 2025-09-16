@@ -6,7 +6,7 @@ from mitosis_O2Steppables import (
 	O2DrivenFateSteppable,
 	O2MitosisSteppable,
 	RadiotherapySteppable,
-        CenterCompactionSteppable,
+	CenterCompactionSteppable,
 	LightAnalysisSteppable
 )
 
