@@ -89,7 +89,7 @@ class SingleCellInitSteppable(SteppableBasePy):
         cell.lambdaVolume = P('LambdaVolumeNormoxic')
         cell.lambdaSurface = P('LambdaSurfaceNormoxic')
 
-        # Calculate initial volume from radius directly: V = (4/3)πr³
+        # Calculate initial volume from radius directly: V = (4/3)*pi*r^3
         initial_volume = (4.0/3.0) * math.pi * (initial_radius ** 3)
         cell.targetVolume = initial_volume
         cell.targetSurface = surface_from_volume(initial_volume)
@@ -183,9 +183,6 @@ class O2DrivenFateSteppable(SteppableBasePy):
         cell.targetVolume = prev_tv
         # Keep surface coherent with target volume
         cell.targetSurface = surface_from_volume(cell.targetVolume)
-        analysis = self.shared_steppable_vars.get('light_analysis')
-        if analysis is not None:
-            analysis.record_type_change(cell, old_type, cell.type)
 
     def _to_hypoxic(self, cell):
         prev_tv = getattr(cell, 'targetVolume', cell.volume)
@@ -200,9 +197,6 @@ class O2DrivenFateSteppable(SteppableBasePy):
             cell.targetSurface = cell.surface
         except Exception:
             pass  # Keep whatever surface value was there
-        analysis = self.shared_steppable_vars.get('light_analysis')
-        if analysis is not None:
-            analysis.record_type_change(cell, old_type, cell.type)
 
     def _to_necrotic(self, cell):
         old_type = cell.type
@@ -221,9 +215,6 @@ class O2DrivenFateSteppable(SteppableBasePy):
         logger.info(
             f"[FATE] Cell {cell.id} -> Necrotic at MCS {self.mcs} volume={cell.volume:.1f}"
         )
-        analysis = self.shared_steppable_vars.get('light_analysis')
-        if analysis is not None:
-            analysis.record_type_change(cell, old_type, cell.type)
 
     def _grow(self, cell):
         # Growth only for normoxic cells - use mathematical surface formula only for growing cells
@@ -240,7 +231,7 @@ class O2DrivenFateSteppable(SteppableBasePy):
             old_tv = cell.targetVolume
             old_ts = cell.targetSurface
             cell.targetVolume = old_tv + growth_rate
-            # Optimized linearized update for surface: dS ≈ (2/3)*(S/V)*dV
+            # Optimized linearized update for surface: dS approx (2/3)*(S/V)*dV
             cell.targetSurface = old_ts + TWO_THIRDS * (old_ts / old_tv) * growth_rate
 
             if self.mcs % self.output_frequency == 0:
@@ -277,7 +268,8 @@ class O2DrivenFateSteppable(SteppableBasePy):
 
 # ------------------------- MITOSIS ---------------------------- #
 class O2MitosisSteppable(MitosisSteppableBase):
-    def __init__(self, frequency=1):
+    def __init__(self, frequency: int = 1):
+        """Allow main script to specify evaluation cadence."""
         super().__init__(frequency)
         self.set_parent_child_position_flag(0)
         # Cache parameters used during division checks
@@ -325,6 +317,99 @@ class O2MitosisSteppable(MitosisSteppableBase):
             f"[MITOSIS] Parent {self.parent_cell.id} child {self.child_cell.id} "
             f"parentTV={self.parent_cell.targetVolume:.1f} childTV={self.child_cell.targetVolume:.1f}"
         )
+
+# ------------------------- RADIOTHERAPY (LQ MODEL) ---------------------------- #
+class RadiotherapySteppable(SteppableBasePy):
+    """Deliver external beam fractions using the classic LQ survival model."""
+
+    def __init__(self, frequency: int = 1):
+        super().__init__(frequency)
+        self._load_rt_parameters()
+        self.fractions_delivered = 0
+        self.last_fraction_mcs = -1
+        self.total_exposed = 0
+        self.total_killed = 0
+
+    def _load_rt_parameters(self):
+        self.enabled = bool(int(P('RT_Enable')))
+        self.total_fractions = max(0, int(P('RT_Fractions')))
+        self.start_mcs = int(P('RT_StartMCS'))
+        self.period = max(1, int(P('RT_PeriodMCS')))
+        self.dose = float(P('RT_DoseGy'))
+        self.alpha = float(P('RT_Alpha'))
+        self.beta = float(P('RT_Beta'))
+        self.lambda_volume_necrotic = P('LambdaVolumeNecrotic')
+        self.lambda_surface_necrotic = P('LambdaSurfaceNecrotic')
+        survival = math.exp(-(self.alpha * self.dose + self.beta * (self.dose ** 2)))
+        self.expected_survival = max(0.0, min(1.0, survival))
+        self.kill_probability = max(0.0, min(1.0, 1.0 - self.expected_survival))
+
+    def start(self):
+        self._load_rt_parameters()
+        self.fractions_delivered = 0
+        self.last_fraction_mcs = -1
+        self.total_exposed = 0
+        self.total_killed = 0
+
+    def step(self, mcs):
+        if not self.enabled or self.total_fractions <= 0:
+            return
+        if self.fractions_delivered >= self.total_fractions:
+            return
+        if mcs < self.start_mcs:
+            return
+        if (mcs - self.start_mcs) % self.period != 0:
+            return
+        if mcs == self.last_fraction_mcs:
+            return
+        self._deliver_fraction(mcs)
+
+    def _deliver_fraction(self, mcs):
+        normoxic_cells = list(self.cell_list_by_type(self.NORMOXIC))
+        n_before = len(normoxic_cells)
+        if n_before == 0:
+            self.fractions_delivered += 1
+            self.last_fraction_mcs = mcs
+            logger.info(
+                f"[RT] MCS {mcs} fraction {self.fractions_delivered} -- no normoxic targets"
+            )
+            return
+
+        killed = 0
+        for cell in normoxic_cells:
+            if random.random() < self.kill_probability:
+                self._kill_cell(cell, mcs)
+                killed += 1
+
+        survived = n_before - killed
+        observed_sr = survived / n_before if n_before > 0 else 1.0
+        self.total_exposed += n_before
+        self.total_killed += killed
+        cumulative_sr = (
+            (self.total_exposed - self.total_killed) / self.total_exposed
+            if self.total_exposed > 0 else 1.0
+        )
+        self.fractions_delivered += 1
+        self.last_fraction_mcs = mcs
+
+        logger.info(
+            f"[RT] MCS {mcs} fraction {self.fractions_delivered} D={self.dose:g}Gy "
+            f"SR_exp={self.expected_survival:.3f} killProb={self.kill_probability:.3f} "
+            f"targets={n_before} killed={killed} survived={survived} "
+            f"SR_obs={observed_sr:.3f} SR_cum={cumulative_sr:.3f}"
+        )
+
+    def _kill_cell(self, cell, mcs):
+        cell.type = self.NECROTIC
+        cell.lambdaVolume = self.lambda_volume_necrotic
+        cell.lambdaSurface = self.lambda_surface_necrotic
+        cell.targetVolume = cell.volume
+        try:
+            cell.targetSurface = cell.surface
+        except Exception:
+            cell.targetSurface = surface_from_volume(cell.targetVolume)
+        cell.dict['necrotic_mcs'] = mcs
+
 
 # ------------------------- CENTRAL COMPACTION ---------------------------- #
 class CenterCompactionSteppable(SteppableBasePy):
@@ -375,7 +460,7 @@ class CenterCompactionSteppable(SteppableBasePy):
 
 # ------------------------- LIGHT ANALYSIS / PLOTTING ---------------------------- #
 class LightAnalysisSteppable(SteppableBasePy):
-    VALIDATION_PERIOD = 20  # Changed from 1000 to 20
+    VALIDATION_PERIOD = 50
     
     def __init__(self, frequency: int | None = None):
         if frequency is None:
@@ -402,85 +487,43 @@ class LightAnalysisSteppable(SteppableBasePy):
         for name, color in (('Normoxic', 'green'), ('Hypoxic', 'orange'), ('Necrotic', 'red')):
             self.plot_counts.add_plot(name, style='Lines', color=color, size=2)
 
-        self.counts = {'Normoxic': 0, 'Hypoxic': 0, 'Necrotic': 0}
-        for cell in self.cell_list:
-            if cell.type == self.NORMOXIC:
-                self.counts['Normoxic'] += 1
-            elif cell.type == self.HYPOXIC:
-                self.counts['Hypoxic'] += 1
-            elif cell.type == self.NECROTIC:
-                self.counts['Necrotic'] += 1
-            cell.dict['last_volume'] = cell.volume
-        self.shared_steppable_vars['light_analysis'] = self
-
-    def cell_added(self, cell):
-        self.total_volume += cell.volume
-        cell.dict['last_volume'] = cell.volume
-        if cell.type == self.NORMOXIC:
-            self.counts['Normoxic'] += 1
-        elif cell.type == self.HYPOXIC:
-            self.counts['Hypoxic'] += 1
-        elif cell.type == self.NECROTIC:
-            self.counts['Necrotic'] += 1
-
-    def cell_removed(self, cell):
-        self.total_volume -= cell.volume
-        if cell.type == self.NORMOXIC:
-            self.counts['Normoxic'] -= 1
-        elif cell.type == self.HYPOXIC:
-            self.counts['Hypoxic'] -= 1
-        elif cell.type == self.NECROTIC:
-            self.counts['Necrotic'] -= 1
-
-    def record_type_change(self, cell, old_type, new_type):
-        if old_type == new_type:
-            return
-        if old_type == self.NORMOXIC:
-            self.counts['Normoxic'] -= 1
-        elif old_type == self.HYPOXIC:
-            self.counts['Hypoxic'] -= 1
-        elif old_type == self.NECROTIC:
-            self.counts['Necrotic'] -= 1
-        if new_type == self.NORMOXIC:
-            self.counts['Normoxic'] += 1
-        elif new_type == self.HYPOXIC:
-            self.counts['Hypoxic'] += 1
-        elif new_type == self.NECROTIC:
-            self.counts['Necrotic'] += 1
-
-    def update_volume(self, delta):
-        self.total_volume += delta
-
     def step(self, mcs):
-        # Calculate fresh total volume each time to avoid tracking errors
+        # Calculate fresh counts and volume every time to avoid sync issues
+        counts = {'Normoxic': 0, 'Hypoxic': 0, 'Necrotic': 0}
         total_vol = 0.0
+        o2_samples = []
+        
         for cell in self.cell_list:
             total_vol += cell.volume
+            if cell.type == self.NORMOXIC:
+                counts['Normoxic'] += 1
+            elif cell.type == self.HYPOXIC:
+                counts['Hypoxic'] += 1
+            elif cell.type == self.NECROTIC:
+                counts['Necrotic'] += 1
+            
+            # Sample oxygen at cell location for monitoring
+            if cell.type != 0:  # Not medium
+                x, y, z = get_safe_coordinates(cell, self.max_x, self.max_y, self.max_z)
+                o2 = float(self.field.Oxygen[x, y, z])
+                o2_samples.append(o2)
         
+        # Plot fresh calculated values
         self.plot_total.add_data_point('Volume', mcs, total_vol)
-        for k in self.counts:
-            self.plot_counts.add_data_point(k, mcs, self.counts[k])
+        for k in counts:
+            self.plot_counts.add_data_point(k, mcs, counts[k])
 
+        # Oxygen and debug info
         if mcs % self.VALIDATION_PERIOD == 0:
-            counts = {'Normoxic': 0, 'Hypoxic': 0, 'Necrotic': 0}
-            o2_samples = []
-            for cell in self.cell_list:
-                if cell.type == self.NORMOXIC:
-                    counts['Normoxic'] += 1
-                elif cell.type == self.HYPOXIC:
-                    counts['Hypoxic'] += 1
-                elif cell.type == self.NECROTIC:
-                    counts['Necrotic'] += 1
-                if cell.type != 0:
-                    x, y, z = get_safe_coordinates(cell, self.max_x, self.max_y, self.max_z)
-                    o2 = float(self.field.Oxygen[x, y, z])
-                    o2_samples.append(o2)
-            # Update counts if validation finds differences
-            if counts != self.counts:
-                logger.debug(f"[VALIDATION] Counter mismatch at MCS {mcs} - resetting")
-                self.counts = counts
             if o2_samples:
                 o2_min, o2_max, o2_avg = min(o2_samples), max(o2_samples), sum(o2_samples) / len(o2_samples)
                 logger.debug(
                     f"[O2-MONITOR] MCS {mcs} O2: min={o2_min:.3f} avg={o2_avg:.3f} max={o2_max:.3f} | "
                     f"Thresholds: N/H={self.o2_thresh_normoxic_hypoxic:.3f} H/Nec={self.o2_thresh_hypoxic_necrotic:.3f}")
+            
+            logger.debug(
+                f"[STAT] MCS {mcs} Vol={total_vol:.1f} Cells={len(self.cell_list)} "
+                f"N={counts['Normoxic']} H={counts['Hypoxic']} Nec={counts['Necrotic']}"
+            )
+
+

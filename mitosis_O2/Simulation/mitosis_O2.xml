@@ -27,17 +27,17 @@
 
   <Plugin Name="Contact">
     <Energy Type1="Medium"   Type2="Medium">0</Energy>
-    <Energy Type1="Medium"   Type2="Normoxic">2</Energy>
-    <Energy Type1="Medium"   Type2="Hypoxic">3</Energy>
+    <Energy Type1="Medium"   Type2="Normoxic">5</Energy>
+    <Energy Type1="Medium"   Type2="Hypoxic">5</Energy>
     <Energy Type1="Medium"   Type2="Necrotic">5</Energy>
 
-    <Energy Type1="Normoxic" Type2="Normoxic">2</Energy>
-    <Energy Type1="Hypoxic"  Type2="Hypoxic">3</Energy>
-    <Energy Type1="Necrotic" Type2="Necrotic">1</Energy>
+    <Energy Type1="Normoxic" Type2="Normoxic">10</Energy>
+    <Energy Type1="Hypoxic"  Type2="Hypoxic">10</Energy>
+    <Energy Type1="Necrotic" Type2="Necrotic">10</Energy>
 
     <Energy Type1="Normoxic" Type2="Hypoxic">5</Energy>
     <Energy Type1="Normoxic" Type2="Necrotic">0</Energy>
-    <Energy Type1="Hypoxic"  Type2="Necrotic">3</Energy>
+    <Energy Type1="Hypoxic"  Type2="Necrotic">5</Energy>
   </Plugin>
 
   <!-- Simplified plugin set - removed unnecessary trackers -->
@@ -72,8 +72,8 @@
 
       <SecretionData>
         <!-- Michaelis-Menten uptake with RelativeUptakeRate -->
-        <Uptake Type="Normoxic" MaxUptake="0.015" RelativeUptakeRate="0.075" MichaelisMentenCoef="0.01"/>
-        <Uptake Type="Hypoxic"  MaxUptake="0.011" RelativeUptakeRate="0.01" MichaelisMentenCoef="0.005"/>
+        <Uptake Type="Normoxic" MaxUptake="0.015" RelativeUptakeRate="0.05" MichaelisMentenCoef="0.01"/>
+        <Uptake Type="Hypoxic"  MaxUptake="0.01" RelativeUptakeRate="0.03" MichaelisMentenCoef="0.005"/>
         <Uptake Type="Necrotic" MaxUptake="0.000" RelativeUptakeRate="0.0" MichaelisMentenCoef="0.00"/>
       </SecretionData>
 
@@ -99,10 +99,10 @@
   <UserParameters>
     <!-- Cell geometry parameters -->
     <Param Name="InitialCellRadius" Value="1.8" Desc="Initial cell radius in voxels"/>
-    <Param Name="FinalTargetVolume" Value="65" Desc="Target volume for cell division"/>
+    <Param Name="FinalTargetVolume" Value="63" Desc="Target volume for cell division"/>
     
     <!-- Growth Rates (volume increment per MCS) -->
-    <Param Name="GrowthRateNormoxic" Value="0.95" Desc="Volume increment per MCS (normoxic cells)"/>
+    <Param Name="GrowthRateNormoxic" Value="1.95" Desc="Volume increment per MCS (normoxic cells)"/>
 
     <!-- Per-type lambda parameters (used by steppables) -->
     <Param Name="LambdaVolumeNormoxic" Value="20.0" Desc="Volume constraint for normoxic"/>
@@ -114,22 +114,30 @@
     <Param Name="LambdaSurfaceNecrotic" Value="3.0" Desc="Surface constraint for necrotic"/>
     
     <!-- FIELD-DRIVEN PHENOTYPE: Two-Threshold System -->
-    <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.3" Desc="Single threshold for normoxic/hypoxic transition"/>
-    <Param Name="O2_Thresh_HypoxicNecrotic" Value="0.1" Desc="Threshold for hypoxic to necrotic transition"/>
+    <Param Name="O2_Thresh_NormoxicHypoxic" Value="0.15" Desc="Single threshold for normoxic/hypoxic transition"/>
+    <Param Name="O2_Thresh_HypoxicNecrotic" Value="0.05" Desc="Threshold for hypoxic to necrotic transition"/>
     
     <!-- Division Probabilities -->
     <Param Name="DivProbNormoxic" Value="1" Desc="Division probability for normoxic cells"/>
     
     <!-- Necrotic Cell Behavior -->
-    <Param Name="NecroticShrinkageRate" Value="0.75" Desc="Volume reduction rate per MCS for necrotic cells"/>
-    <Param Name="NecroticLifetime" Value="40" Desc="Maximum MCS a necrotic cell exists"/>
+    <Param Name="NecroticShrinkageRate" Value="0.08" Desc="Volume reduction rate per MCS for necrotic cells"/>
+    <Param Name="NecroticLifetime" Value="80" Desc="Maximum MCS a necrotic cell exists"/>
     
     <!-- Force pushing cells toward center to fill gaps -->
-    <Param Name="CenterPushStrength" Value="-2" Desc="Inward force magnitude for living cells"/>
+    <Param Name="CenterPushStrength" Value="-5" Desc="Inward force magnitude for living cells"/>
 
     <!-- Analysis -->
-    <Param Name="OutputFrequency" Value="10" Desc="Analysis and log frequency (MCS)"/>
+    <Param Name="OutputFrequency" Value="20" Desc="Analysis and log frequency (MCS)"/>
 
+    <!-- Radiotherapy (LQ model parameters merged from older commit) -->
+    <Param Name="RT_Enable" Value="0" Desc="1 to enable radiotherapy"/>
+    <Param Name="RT_Alpha" Value="0.3" Desc="Gy^-1"/>
+    <Param Name="RT_Beta" Value="0.03" Desc="Gy^-2"/>
+    <Param Name="RT_DoseGy" Value="2.0" Desc="Dose per fraction in Gy"/>
+    <Param Name="RT_StartMCS" Value="200" Desc="First RT fraction time (MCS)"/>
+    <Param Name="RT_PeriodMCS" Value="200" Desc="Spacing between fractions (MCS)"/>
+    <Param Name="RT_Fractions" Value="1" Desc="Number of fractions to deliver"/>
   </UserParameters>
   
 </CompuCell3D>
